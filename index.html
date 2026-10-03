@@ -1,0 +1,1515 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Hoja de Campo Digital</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#cdde00">
+<meta name="description" content="Hoja de campo digital de Fundació Trinijove para las caracterizaciones de residuos del expediente ARC-2027-6.">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hoja de campo">
+<style>
+/*
+  Layout: single-column mobile app shell — sticky top bar, scrollable body,
+  bottom tab bar. Views are swapped by toggling [hidden]; the "nueva
+  caracterización" flow is a 4-step wizard inside one view.
+*/
+:root{
+  --bg:#f5f6ef; --surface:#ffffff; --surface-2:#eef1e0;
+  --fg:#1a1a1a; --fg-muted:#5b5f52; --border:#dfe3d2;
+  --accent:#7a8f00; --accent-ink:#3a4400; --accent-bg:#eaf1b8;
+  --ok:#2f8a3e; --ok-bg:#e3f3e2;
+  --warn:#a15b00; --warn-bg:#fbeecb;
+  --danger:#b3261e; --danger-bg:#fbe4e2;
+  --shadow: 0 1px 2px rgba(20,20,10,.06), 0 6px 16px -8px rgba(20,20,10,.18);
+  --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#eda100; --c5:#e87ba4; --c6:#008300; --c-other:#a7ab99;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14150f; --surface:#1d1f16; --surface-2:#262a1a;
+    --fg:#eef0e4; --fg-muted:#a7ab99; --border:#33361f;
+    --accent:#cdde00; --accent-ink:#eaf3a0; --accent-bg:#2c3300;
+    --ok:#6fd47f; --ok-bg:#173322;
+    --warn:#e3ad4e; --warn-bg:#3a2a08;
+    --danger:#f2938c; --danger-bg:#3a1614;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 24px -10px rgba(0,0,0,.6);
+    --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#008300; --c-other:#7a7d70;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14150f; --surface:#1d1f16; --surface-2:#262a1a;
+  --fg:#eef0e4; --fg-muted:#a7ab99; --border:#33361f;
+  --accent:#cdde00; --accent-ink:#eaf3a0; --accent-bg:#2c3300;
+  --ok:#6fd47f; --ok-bg:#173322;
+  --warn:#e3ad4e; --warn-bg:#3a2a08;
+  --danger:#f2938c; --danger-bg:#3a1614;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 24px -10px rgba(0,0,0,.6);
+  --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#008300; --c-other:#7a7d70;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  height:100%; margin:0; display:flex; justify-content:center;
+}
+html{height:100%}
+#shell{
+  width:100%; max-width:460px; min-height:100%;
+  display:flex; flex-direction:column; background:var(--bg);
+  position:relative;
+}
+h1,h2,h3{font-family:"Manrope",-apple-system,sans-serif; text-wrap:balance; margin:0}
+.topbar{
+  position:sticky; top:env(safe-area-inset-top,0px); z-index:5;
+  background:var(--surface); border-bottom:1px solid var(--border);
+  padding:14px 18px; display:flex; align-items:center; gap:10px;
+}
+.topbar .mark{
+  height:28px;width:auto;flex:none;display:flex;align-items:center;
+  padding:3px 6px;border-radius:7px;background:#ffffff;
+}
+.topbar .mark img{height:100%;width:auto;display:block}
+.topbar .titles{display:flex; flex-direction:column; min-width:0}
+.topbar .titles b{font-size:14px}
+.topbar .titles span{font-size:11.5px;color:var(--fg-muted)}
+
+main{flex:1; padding:16px 18px 90px; display:flex; flex-direction:column; gap:16px; min-width:0}
+
+.card{
+  background:var(--surface); border:1px solid var(--border); border-radius:14px;
+  padding:16px; box-shadow:var(--shadow);
+}
+.card + .card{margin-top:0}
+.section-label{
+  font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--fg-muted); font-weight:700;
+}
+
+/* home / dashboard */
+.stat-row{display:grid; grid-template-columns:repeat(3,1fr); gap:10px}
+.stat{
+  background:var(--surface); border:1px solid var(--border); border-radius:14px;
+  padding:12px 10px; text-align:center; box-shadow:var(--shadow);
+}
+.stat b{display:block; font-size:22px; font-variant-numeric:tabular-nums}
+.stat span{font-size:10.5px; color:var(--fg-muted)}
+
+.list{display:flex; flex-direction:column; gap:8px}
+.rowcard{
+  display:flex; align-items:center; gap:10px; padding:11px 12px;
+  border:1px solid var(--border); border-radius:12px; background:var(--surface);
+}
+.rowcard .ricon{
+  width:34px;height:34px;border-radius:9px;background:var(--surface-2);
+  display:flex;align-items:center;justify-content:center;flex:none;color:var(--accent-ink);
+}
+.rowcard .rmain{min-width:0; flex:1}
+.rowcard .rmain b{font-size:13.5px; display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.rowcard .rmain span{font-size:11.5px; color:var(--fg-muted)}
+.pill{
+  font-size:10.5px; font-weight:700; padding:3px 8px; border-radius:99px; white-space:nowrap;
+}
+.pill.ok{background:var(--ok-bg); color:var(--ok)}
+.pill.warn{background:var(--warn-bg); color:var(--warn)}
+.pill.pending{background:var(--accent-bg); color:var(--accent-ink)}
+
+.btn{
+  appearance:none; border:none; border-radius:12px; padding:13px 16px;
+  font-size:14.5px; font-weight:700; font-family:inherit; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  transition:transform .08s ease;
+}
+.btn:active{transform:scale(.98)}
+.btn.primary{background:var(--accent); color:#1c2100}
+.btn.ghost{background:var(--surface-2); color:var(--fg)}
+.btn.block{width:100%}
+.btn[disabled]{opacity:.45; cursor:not-allowed}
+.btn.small{padding:8px 12px; font-size:12.5px; border-radius:9px}
+
+.fab{
+  position:fixed; left:50%; transform:translateX(-50%);
+  bottom:calc(78px + env(safe-area-inset-bottom,0px));
+  width:min(424px, calc(100% - 36px));
+  z-index:6;
+}
+
+.tabbar{
+  position:fixed; left:50%; transform:translateX(-50%); bottom:0;
+  width:100%; max-width:460px;
+  background:var(--surface); border-top:1px solid var(--border);
+  padding:8px 10px calc(10px + env(safe-area-inset-bottom,0px));
+  display:flex; z-index:5;
+}
+.tabbar button{
+  flex:1; background:none; border:none; display:flex; flex-direction:column; align-items:center; gap:3px;
+  color:var(--fg-muted); font-size:10.5px; font-family:inherit; padding:6px 4px; cursor:pointer;
+}
+.tabbar button svg{width:19px;height:19px}
+.tabbar button.active{color:var(--accent-ink)}
+:root[data-theme="dark"] .tabbar button.active, @media (prefers-color-scheme:dark){}
+.tabbar button.active svg{stroke:var(--accent)}
+
+/* wizard */
+.steps{display:flex; gap:6px; margin-bottom:2px}
+.steps i{flex:1; height:4px; border-radius:99px; background:var(--border)}
+.steps i.done{background:var(--accent)}
+.steps i.now{background:var(--accent); opacity:.55}
+
+label.field{display:flex; flex-direction:column; gap:6px; font-size:12.5px; color:var(--fg-muted); font-weight:600}
+label.field input, label.field select, label.field textarea{
+  font-family:inherit; font-size:14.5px; color:var(--fg); background:var(--surface-2);
+  border:1px solid var(--border); border-radius:10px; padding:11px 12px; width:100%;
+}
+label.field textarea{resize:vertical; min-height:64px}
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+.field-row{display:flex; flex-direction:column; gap:12px}
+
+.chiprow{display:flex; gap:8px; flex-wrap:wrap}
+.chip{
+  border:1px solid var(--border); background:var(--surface-2); color:var(--fg);
+  font-size:12.5px; font-weight:600; padding:8px 13px; border-radius:99px; cursor:pointer;
+}
+.chip.sel{background:var(--accent); border-color:var(--accent); color:#1c2100}
+
+.tolerance{
+  display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px;
+  font-size:12.5px; font-weight:600;
+}
+.tolerance.ok{background:var(--ok-bg); color:var(--ok)}
+.tolerance.warn{background:var(--danger-bg); color:var(--danger)}
+
+.checklist{display:flex; flex-direction:column; gap:9px}
+.checkitem{display:flex; align-items:flex-start; gap:10px; font-size:13px}
+.checkitem .box{
+  width:19px;height:19px;border-radius:6px;border:1.6px solid var(--border); flex:none; margin-top:1px;
+  display:flex; align-items:center; justify-content:center; background:var(--surface-2);
+}
+.checkitem.done .box{background:var(--ok); border-color:var(--ok)}
+.checkitem.done .box svg{stroke:#fff}
+.checkitem b{display:block}
+.checkitem span{color:var(--fg-muted); font-size:11.5px}
+
+.photogrid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px}
+.pshot{
+  aspect-ratio:1; border-radius:10px; border:1.5px dashed var(--border);
+  display:flex; align-items:center; justify-content:center; color:var(--fg-muted);
+  background:var(--surface-2); overflow:hidden; position:relative; font-size:10px; text-align:center; padding:4px;
+}
+.pshot img{width:100%; height:100%; object-fit:cover}
+.pshot.filled{border-style:solid; border-color:var(--ok)}
+.pshot .badge{
+  position:absolute; top:4px; right:4px; background:var(--ok); color:#fff; border-radius:50%;
+  width:16px;height:16px; display:flex; align-items:center; justify-content:center;
+}
+.pshot .badge svg{width:10px;height:10px; stroke:#fff}
+
+.geobox{
+  display:flex; align-items:center; gap:10px; padding:11px 12px; border-radius:10px;
+  background:var(--surface-2); border:1px solid var(--border); font-size:12.5px;
+}
+.geobox svg{flex:none; color:var(--accent-ink)}
+.geobox b{font-size:12.5px}
+.geobox span{color:var(--fg-muted); display:block; font-size:11px}
+
+.summary-row{display:flex; justify-content:space-between; gap:10px; font-size:13px; padding:8px 0; border-bottom:1px solid var(--border)}
+.summary-row:last-child{border-bottom:none}
+.summary-row span:first-child{color:var(--fg-muted)}
+.summary-row span:last-child{font-weight:700; text-align:right}
+
+.banner{
+  display:flex; gap:10px; align-items:flex-start; padding:12px 13px; border-radius:12px; font-size:12.5px;
+  background:var(--accent-bg); color:var(--accent-ink); border:1px solid var(--border);
+}
+.banner svg{flex:none; margin-top:1px}
+
+.empty{
+  display:flex; flex-direction:column; align-items:center; text-align:center; gap:8px;
+  padding:36px 18px; color:var(--fg-muted);
+}
+
+.toast{
+  position:fixed; left:50%; bottom:calc(96px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%) translateY(12px);
+  background:var(--fg); color:var(--bg); font-size:12.5px; font-weight:600; padding:10px 16px; border-radius:99px;
+  opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease; z-index:9; white-space:nowrap;
+  box-shadow:var(--shadow);
+}
+.toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+
+a{color:var(--accent-ink)}
+.hdr-actions{display:flex; align-items:center; gap:10px}
+.iconbtn{
+  background:var(--surface-2); border:1px solid var(--border); border-radius:9px; width:34px; height:34px;
+  display:flex; align-items:center; justify-content:center; color:var(--fg); cursor:pointer;
+}
+
+/* fracción / incidencia photo slots */
+.fslot{
+  aspect-ratio:1; border-radius:10px; border:1.5px dashed var(--border);
+  display:flex; align-items:center; justify-content:center; color:var(--fg-muted);
+  background:var(--surface-2); overflow:hidden; position:relative; font-size:10px; text-align:center; padding:4px; cursor:pointer;
+}
+.fslot img{width:100%; height:100%; object-fit:cover}
+.fslot.filled{border-style:solid; border-color:var(--ok)}
+.fslot .rm{
+  position:absolute; top:3px; right:3px; width:18px; height:18px; border-radius:50%;
+  background:rgba(20,20,10,.55); color:#fff; display:flex; align-items:center; justify-content:center; font-size:11px; line-height:1;
+}
+.inc-item{
+  display:flex; gap:10px; padding:10px; border:1px solid var(--border); border-radius:12px; background:var(--surface-2);
+}
+.inc-item .ithumb{width:44px;height:44px;border-radius:8px;object-fit:cover;flex:none;background:var(--surface)}
+.inc-item .itext{flex:1; font-size:12.5px; min-width:0}
+.inc-item .idel{flex:none; background:none; border:none; color:var(--danger); font-size:12px; font-weight:700; cursor:pointer; padding:2px 4px}
+.photo-report-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:10px}
+.photo-report-grid figure{margin:0; display:flex; flex-direction:column; gap:5px}
+.photo-report-grid img{width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:10px; border:1px solid var(--border); background:var(--surface-2)}
+.photo-report-grid figcaption{font-size:11px; color:var(--fg-muted)}
+
+.fraccam{flex:none; width:44px; display:flex; align-items:center; justify-content:center; background:none; border:none; border-left:1px solid var(--border); cursor:pointer; color:var(--fg-muted)}
+.fraccam.has{color:var(--ok)}
+.fracphoto-preview{display:flex; align-items:center; gap:8px; padding:2px 15px 12px}
+.fracphoto-preview img{width:38px;height:38px;border-radius:8px;object-fit:cover;border:1px solid var(--border)}
+.fracphoto-preview span{font-size:11px; color:var(--fg-muted); flex:1}
+.fracphoto-preview button{background:none;border:none;color:var(--danger);font-size:11.5px;font-weight:700;cursor:pointer;padding:2px 4px}
+
+.chart-legend{display:flex; flex-direction:column; gap:7px}
+.chart-legend .lrow{display:flex; align-items:center; gap:8px; font-size:12.5px}
+.chart-legend .ldot{width:10px;height:10px;border-radius:3px;flex:none}
+.chart-legend .llabel{flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.chart-legend .lval{font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap}
+
+@media print{
+  .topbar, .tabbar, .no-print{display:none !important}
+  body{display:block}
+  #shell{max-width:none; width:100%}
+  main{padding:0; gap:14px}
+  .card{box-shadow:none; break-inside:avoid}
+}
+</style>
+
+<div id="shell">
+  <div class="topbar">
+    <div class="mark">
+      <img src="data:image/png;base64,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" alt="Fundació Trinijove">
+    </div>
+    <div class="titles">
+      <b id="topTitle">Hoja de campo</b>
+      <span id="topSub">Fundació Privada Trinijove · ARC-2027-6</span>
+    </div>
+    <button type="button" class="iconbtn" id="installBtn" title="Instalar app" style="display:none; margin-left:auto">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+    </button>
+  </div>
+
+  <main id="main"></main>
+
+  <div class="tabbar">
+    <button class="tab-btn active" data-tab="home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11 L12 4 L20 11"/><path d="M6 10 V20 H18 V10"/></svg>
+      Inicio
+    </button>
+    <button class="tab-btn" data-tab="list">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M5 12h14M5 18h14"/></svg>
+      Registros
+    </button>
+    <button class="tab-btn" data-tab="new">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+      Nueva
+    </button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<input type="file" accept="image/*" capture="environment" id="fileInput" style="display:none">
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- demo data model ---------- */
+  var TYPES = [
+    {id:"FORM", label:"FORM", lote:[1,2], tol:{target:250, pct:0.10, min:225}},
+    {id:"FRESTO", label:"F. Resto", lote:[1,2]},
+    {id:"R1RESTO", label:"R1 Resto", lote:[1,2]},
+    {id:"R1SEC", label:"R1 Sec", lote:[1,2]},
+    {id:"R1PES", label:"R1 Pes", lote:[1]},
+    {id:"R1FLOT", label:"R1 Flot", lote:[1]},
+    {id:"R2FO", label:"R2 FO", lote:[1,2]},
+    {id:"R2RESTO", label:"R2 Resto", lote:[1]},
+    {id:"R3FO", label:"R3 FO", lote:[1,2]},
+    {id:"R4BIO", label:"R4 Bio", lote:[2]}
+  ];
+  var INSTALACIONES = {
+    1:["Ecoparc 1 (Barcelona) — TMB","Planta de compostaje de Sant Pere de Ribes","Planta de compostaje de Sant Cugat del Vallès","Planta de tratamiento biológico de Torrelles de Llobregat","Planta de trasvase de Viladecans"],
+    2:["Ecoparc 2 (Montcada i Reixac)","Planta de tratamiento biológico de Terrassa","Planta de tratamiento biológico de Orís","Planta de trasvase de Berga","Planta de selección de Sabadell"]
+  };
+  var TECNICOS = ["M. Àngels Puig","Jordi Serra","Laia Ferran","Marc Oliveras"];
+
+  /* Categorías de materiales según los protocolos oficiales de la ARC */
+  var MATERIAL_GROUPS = {
+    FORM: [
+      {group:"Fracció orgànica", items:[
+        {id:"fom_malbaratament", label:"Malbaratament alimentari"},
+        {id:"fom_vegetal_petita", label:"Fracció vegetal de mida petita"},
+        {id:"fom_no_classificada", label:"Fracció orgànica no classificada"},
+        {id:"fom_poda", label:"Poda"}
+      ]},
+      {group:"Impropis", items:[
+        {id:"imp_vidre", label:"Vidre"},
+        {id:"imp_paper", label:"Paper i cartró"},
+        {id:"imp_plastics", label:"Plàstics, mixtos i films"},
+        {id:"imp_bosses", label:"Bosses de plàstic"},
+        {id:"imp_metalls_fer", label:"Metalls fèrrics"},
+        {id:"imp_metalls_nofer", label:"Metalls no fèrrics"},
+        {id:"imp_textil", label:"Tèxtil"},
+        {id:"imp_textil_san", label:"Tèxtil-sanitari"},
+        {id:"imp_perillosos", label:"Residus perillosos"},
+        {id:"imp_voluminosos", label:"Residus voluminosos"},
+        {id:"imp_altres", label:"Altres"}
+      ]}
+    ],
+    RESTO: [
+      {group:"Paper-cartró", items:[
+        {id:"pc_envas", label:"Envàs"},
+        {id:"pc_noenvas", label:"No envàs"},
+        {id:"pc_brik", label:"Cartró beguda tipus brik"},
+        {id:"pc_compostos", label:"Altres envasos compostos"}
+      ]},
+      {group:"Vidre", items:[
+        {id:"vi_envas", label:"Envàs"},
+        {id:"vi_noenvas", label:"No envàs"}
+      ]},
+      {group:"Metalls fèrrics", items:[
+        {id:"mf_envas", label:"Envàs"},
+        {id:"mf_noenvas", label:"No envàs"}
+      ]},
+      {group:"Metalls no fèrrics", items:[
+        {id:"mn_envas", label:"Envàs"},
+        {id:"mn_noenvas", label:"No envàs"}
+      ]},
+      {group:"Fusta", items:[
+        {id:"fu_envas", label:"Envàs"},
+        {id:"fu_noenvas", label:"No envàs"}
+      ]},
+      {group:"Ceràmica", items:[
+        {id:"ce_envas", label:"Envàs"},
+        {id:"ce_noenvas", label:"No envàs"}
+      ]},
+      {group:"Plàstics (excepte SUP)", items:[
+        {id:"pl_pet", label:"PET"},
+        {id:"pl_pead_nat", label:"PEAD Natural"},
+        {id:"pl_pead_col", label:"PEAD Color"},
+        {id:"pl_film_flex", label:"Film — embolcalls flexibles"},
+        {id:"pl_film_nansa", label:"Film — bosses nansa"},
+        {id:"pl_film_escombraries", label:"Film — bosses escombraries"},
+        {id:"pl_pvc", label:"PVC"},
+        {id:"pl_pp", label:"PP"},
+        {id:"pl_ps", label:"PS (excepte EPS)"},
+        {id:"pl_eps", label:"EPS"},
+        {id:"pl_altres", label:"Altres plàstics"}
+      ]},
+      {group:"Plàstic un sol ús (SUP)", items:[
+        {id:"sup_ampolles", label:"Ampolles de begudes ≤3L"}
+      ]},
+      {group:"Bioresidus", items:[
+        {id:"bio_filtres", label:"Filtres de tabac"},
+        {id:"bio_pesca", label:"Arts de pesca amb plàstic"},
+        {id:"bio_globus", label:"Globus"},
+        {id:"bio_tovalloletes", label:"Tovalloletes"},
+        {id:"bio_aliments", label:"Restes d'aliments"},
+        {id:"bio_olis", label:"Olis de cuina usats"},
+        {id:"bio_malbaratament", label:"Malbaratament alimentari"},
+        {id:"bio_poda", label:"Poda i restes de jardineria"},
+        {id:"bio_cellulosics", label:"Cel·lulòsics (excepte sanitaris)"},
+        {id:"bio_compostables", label:"Envasos compostables"},
+        {id:"bio_altres", label:"Altra matèria orgànica"}
+      ]},
+      {group:"Tèxtil", items:[
+        {id:"te_envas", label:"Envàs"},
+        {id:"te_noenvas", label:"No envàs"},
+        {id:"te_calcat", label:"Calçat"}
+      ]},
+      {group:"RAEE (no voluminós)", items:[
+        {id:"raee_cat3", label:"RAEE Cat. 3"},
+        {id:"raee_cat5", label:"RAEE Cat. 5"},
+        {id:"raee_cat6", label:"RAEE Cat. 6"}
+      ]},
+      {group:"Cautxú", items:[
+        {id:"ca_rodes", label:"Rodes de bicicleta i similars"},
+        {id:"ca_altres", label:"Altres residus de cautxú"}
+      ]},
+      {group:"Altres", items:[
+        {id:"al_piles_port", label:"Piles i bateries portàtils"},
+        {id:"al_piles_transport", label:"Piles de mitjans de transport lleugers"},
+        {id:"al_piles_altres", label:"Altres piles i bateries"},
+        {id:"al_prod_solid", label:"Producte en envàs (sòlid)"},
+        {id:"al_prod_liquid", label:"Producte en envàs (líquid)"},
+        {id:"al_terres", label:"Terres i runes"},
+        {id:"al_textil_san", label:"Tèxtil sanitari"},
+        {id:"al_altres", label:"Altres"}
+      ]},
+      {group:"Fins (tamís 50 mm)", items:[
+        {id:"fins_50mm", label:"Fins < 50 mm"}
+      ]}
+    ]
+  };
+  function materialsFor(tipoId){
+    return tipoId==="FORM" ? MATERIAL_GROUPS.FORM : MATERIAL_GROUPS.RESTO;
+  }
+  function materialLabel(tipoId, matId){
+    var groups = materialsFor(tipoId);
+    for(var i=0;i<groups.length;i++){
+      for(var j=0;j<groups[i].items.length;j++){
+        if(groups[i].items[j].id===matId) return groups[i].items[j].label;
+      }
+    }
+    return matId;
+  }
+
+  var SEED = [
+    {id:"c1", tipo:"FORM", lote:1, instalacion:"Ecoparc 1 (Barcelona) — TMB", tecnico:"Jordi Serra", fecha:"2026-09-24", peso:248, estado:"completo", circuito:"BCN-014",
+      materials:{fom_malbaratament:118, fom_vegetal_petita:64, fom_no_classificada:22, imp_plastics:14, imp_paper:9, imp_vidre:6, imp_bosses:8, imp_metalls_fer:3, imp_altres:4},
+      incidencias:[]},
+    {id:"c2", tipo:"R1SEC", lote:1, instalacion:"Planta de compostaje de Sant Pere de Ribes", tecnico:"M. Àngels Puig", fecha:"2026-09-25", peso:np(), estado:"completo", circuito:"SPR-002", incidencias:[]},
+    {id:"c3", tipo:"FORM", lote:2, instalacion:"Ecoparc 2 (Montcada i Reixac)", tecnico:"Laia Ferran", fecha:"2026-09-26", peso:231, estado:"incidencia", circuito:"MON-031",
+      materials:{fom_malbaratament:96, fom_vegetal_petita:58, fom_no_classificada:31, imp_plastics:19, imp_bosses:11, imp_paper:8, imp_metalls_nofer:3, imp_altres:5},
+      incidencias:[{id:"i1", texto:"Bolsa de residuo sanitario detectada fuera del circuito habitual; se retira y se notifica a la instalación.", foto:null}]},
+    {id:"c4", tipo:"R2FO", lote:2, instalacion:"Planta de tratamiento biológico de Terrassa", tecnico:"Marc Oliveras", fecha:"2026-09-26", peso:np(), estado:"revision", circuito:"TER-009", incidencias:[]}
+  ];
+  function np(){return null}
+
+  var state = load();
+  if(!state.tecnicos || !state.tecnicos.length) state.tecnicos = TECNICOS.slice();
+  function load(){
+    try{
+      var raw = localStorage.getItem("trinijove_hcd_v1");
+      if(raw) return JSON.parse(raw);
+    }catch(e){}
+    return {records: SEED, draft:null, tecnicos: TECNICOS.slice()};
+  }
+  function save(){
+    try{ localStorage.setItem("trinijove_hcd_v1", JSON.stringify(state)); }catch(e){}
+  }
+
+  function toast(msg){
+    var t=document.getElementById("toast");
+    t.textContent=msg; t.classList.add("show");
+    clearTimeout(toast._h);
+    toast._h=setTimeout(function(){t.classList.remove("show")},1800);
+  }
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+  function typeLabel(id){var t=TYPES.filter(function(x){return x.id===id})[0]; return t?t.label:id}
+  // limpia un campo numérico a "solo dígitos con un separador decimal", sin tocar el
+  // cursor — se usa en vez de type="number" porque ese tipo no soporta selectionStart
+  // en varios navegadores, lo que rompía el cursor y hacía que las cifras se escribieran al revés.
+  function sanitizeDecimal(v){
+    v = String(v).replace(",", ".").replace(/[^0-9.]/g,"");
+    var firstDot = v.indexOf(".");
+    if(firstDot!==-1) v = v.slice(0,firstDot+1) + v.slice(firstDot+1).replace(/\./g,"");
+    return v;
+  }
+  function refocusEnd(id){
+    var el = document.getElementById(id) || main.querySelector('[data-mat="'+id+'"]') ;
+    if(!el) return;
+    el.focus();
+    try{ el.selectionStart = el.selectionEnd = el.value.length; }catch(e){}
+  }
+
+  /* ---------- camera capture (shared by the materials step and the photos step) ---------- */
+  // Las fotos de cámara (móvil) pueden pesar varios MB sin comprimir: con varias fotos por
+  // registro, el informe generado se vuelve demasiado pesado para descargarse con fiabilidad
+  // en el navegador (sobre todo en móvil). Se redimensionan y recomprimen aquí, en el único
+  // punto compartido por todas las capturas, antes de guardarlas en el registro.
+  var PHOTO_MAX_DIM = 1280;
+  var PHOTO_QUALITY = 0.72;
+  function compressPhoto(dataUrl, onDone){
+    var img = new Image();
+    img.onload = function(){
+      var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+      if(!w || !h){ onDone(dataUrl); return; }
+      var scale = Math.min(1, PHOTO_MAX_DIM / Math.max(w, h));
+      var cw = Math.max(1, Math.round(w*scale)), ch = Math.max(1, Math.round(h*scale));
+      try{
+        var canvas = document.createElement("canvas");
+        canvas.width = cw; canvas.height = ch;
+        var ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, cw, ch);
+        var out = canvas.toDataURL("image/jpeg", PHOTO_QUALITY);
+        onDone(out && out.length < dataUrl.length ? out : dataUrl);
+      }catch(e){ onDone(dataUrl); }
+    };
+    img.onerror = function(){ onDone(dataUrl); };
+    img.src = dataUrl;
+  }
+  function readAsPhoto(file, onDone){
+    if(!file) return;
+    var reader = new FileReader();
+    reader.onload = function(){ compressPhoto(reader.result, onDone); };
+    reader.readAsDataURL(file);
+  }
+  function pickPhoto(onDone){
+    var fileInput = document.getElementById("fileInput");
+    if(!fileInput) return;
+    fileInput.value = "";
+    fileInput.onchange = function(){
+      var f = fileInput.files && fileInput.files[0];
+      if(f) readAsPhoto(f, onDone);
+    };
+    fileInput.click();
+  }
+
+  /* ---------- routing ---------- */
+  var main = document.getElementById("main");
+  var tabs = document.querySelectorAll(".tab-btn");
+  var current = "home";
+  var wizard = null;
+
+  tabs.forEach(function(btn){
+    btn.addEventListener("click", function(){
+      if(btn.dataset.tab==="new"){ startWizard(); return; }
+      goto(btn.dataset.tab);
+    });
+  });
+
+  function goto(tab){
+    current = tab;
+    wizard = null;
+    tabs.forEach(function(b){ b.classList.toggle("active", b.dataset.tab===tab); });
+    render();
+  }
+
+  function setTop(title, sub){
+    document.getElementById("topTitle").textContent = title;
+    document.getElementById("topSub").textContent = sub;
+  }
+
+  function render(){
+    if(current==="home") return renderHome();
+    if(current==="list") return renderList();
+    if(current==="new") return renderWizard();
+  }
+
+  /* ---------- HOME ---------- */
+  function renderHome(){
+    setTop("Hoja de campo","Fundació Privada Trinijove · ARC-2027-6");
+    var recs = state.records;
+    var comp = recs.filter(function(r){return r.estado==="completo"}).length;
+    var inc = recs.filter(function(r){return r.estado==="incidencia"}).length;
+    var rev = recs.filter(function(r){return r.estado==="revision"}).length;
+    var recent = recs.slice().sort(function(a,b){return b.fecha<a.fecha?-1:1}).slice(0,3);
+
+    main.innerHTML =
+      '<button class="btn primary block" id="ctaNew" style="padding:15px">'+
+        '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>'+
+        'Nueva caracterización'+
+      '</button>'+
+
+      '<div class="stat-row">'+
+        '<div class="stat"><b>'+comp+'</b><span>Completos</span></div>'+
+        '<div class="stat"><b>'+inc+'</b><span>Con incidencias</span></div>'+
+        '<div class="stat"><b>'+rev+'</b><span>En revisión</span></div>'+
+      '</div>'+
+
+      '<div class="card">'+
+        '<div class="section-label" style="margin-bottom:10px">Cumplimiento de plazos</div>'+
+        deadlineRows()+
+      '</div>'+
+
+      '<div class="card">'+
+        '<div class="section-label" style="margin-bottom:10px">Últimas caracterizaciones</div>'+
+        '<div class="list">'+ recent.map(rowCard).join("") +'</div>'+
+      '</div>'+
+
+      '<div class="banner">'+
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>'+
+        '<div>Demo de la mejora <b>«Hoja de campo digital con validación en el momento»</b> descrita en la memoria técnica (apdo. 5): peso, composición por fracciones, fotografías de evidencia e incidencias registradas en el momento de la caracterización, con generación automática del informe final.</div>'+
+      '</div>'+
+      (installHintText()? '<div class="banner"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg><div>'+installHintText()+'</div></div>' : '');
+
+    var ctaNew = document.getElementById("ctaNew");
+    if(ctaNew) ctaNew.addEventListener("click", startWizard);
+    attachRowHandlers();
+  }
+
+  function deadlineRows(){
+    var items = [
+      {label:"FORM — plazo 7 días", pct:62, status:"ok"},
+      {label:"Fracción resto y rechazos — plazo 15 días", pct:38, status:"ok"},
+      {label:"Boletines fuera de plazo (límite 15%)", pct:4, status:"ok"}
+    ];
+    return items.map(function(i){
+      return '<div style="margin-bottom:10px">'+
+        '<div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:5px"><span>'+i.label+'</span><span style="font-weight:700; font-variant-numeric:tabular-nums">'+i.pct+'%</span></div>'+
+        '<div style="height:6px;border-radius:99px;background:var(--surface-2);overflow:hidden"><div style="height:100%;width:'+i.pct+'%;background:var(--accent);border-radius:99px"></div></div>'+
+      '</div>';
+    }).join("");
+  }
+
+  function rowCard(r){
+    var pillClass = r.estado==="completo"?"ok":(r.estado==="incidencia"?"warn":"pending");
+    var pillLabel = r.estado==="completo"?"Completo":(r.estado==="incidencia"?"Con incidencias":"Revisión");
+    return '<div class="rowcard" data-id="'+r.id+'" style="cursor:pointer">'+
+      '<div class="ricon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9z"/></svg></div>'+
+      '<div class="rmain"><b>'+typeLabel(r.tipo)+' · Lote '+r.lote+'</b><span>'+esc(r.instalacion)+' · '+r.fecha+'</span></div>'+
+      '<span class="pill '+pillClass+'">'+pillLabel+'</span>'+
+    '</div>';
+  }
+
+  function attachRowHandlers(){
+    main.querySelectorAll(".rowcard[data-id]").forEach(function(el){
+      el.addEventListener("click", function(){ openRecord(el.dataset.id); });
+    });
+  }
+
+  /* ---------- LIST ---------- */
+  function renderList(){
+    setTop("Registros","Todas las caracterizaciones capturadas");
+    var recs = state.records.slice().sort(function(a,b){return b.fecha<a.fecha?-1:1});
+    if(!recs.length){
+      main.innerHTML = emptyState("No hay registros todavía","Pulsa «Nueva» para capturar la primera caracterización.");
+      return;
+    }
+    var groups = {};
+    recs.forEach(function(r){ (groups[r.fecha]=groups[r.fecha]||[]).push(r); });
+    var html = "";
+    Object.keys(groups).sort().reverse().forEach(function(day){
+      html += '<div class="section-label" style="margin:2px 2px -4px">'+ formatDay(day) +'</div>';
+      html += '<div class="list">'+ groups[day].map(rowCard).join("") +'</div>';
+    });
+    main.innerHTML = html;
+    attachRowHandlers();
+  }
+  function formatDay(d){
+    var dt = new Date(d+"T00:00:00");
+    return dt.toLocaleDateString("es-ES",{weekday:"long", day:"numeric", month:"long"});
+  }
+  function emptyState(title, sub){
+    return '<div class="empty">'+
+      '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9z"/></svg>'+
+      '<b style="font-size:14px; color:var(--fg)">'+title+'</b><span style="font-size:12.5px">'+sub+'</span>'+
+    '</div>';
+  }
+
+  function openRecord(id){
+    var r = state.records.filter(function(x){return x.id===id})[0];
+    if(!r) return;
+    setTop(typeLabel(r.tipo), r.circuito+" · Lote "+r.lote);
+    var pillClass = r.estado==="completo"?"ok":(r.estado==="incidencia"?"warn":"pending");
+    var pillLabel = r.estado==="completo"?"Completo":(r.estado==="incidencia"?"Con incidencias":"En revisión interna");
+    main.innerHTML =
+      '<button class="btn ghost small" id="backBtn" style="align-self:flex-start">&larr; Volver</button>'+
+      '<div class="card">'+
+        '<span class="pill '+pillClass+'" style="margin-bottom:12px; display:inline-block">'+pillLabel+'</span>'+
+        '<div class="summary-row"><span>Circuito</span><span>'+esc(r.circuito)+'</span></div>'+
+        '<div class="summary-row"><span>Instalación</span><span>'+esc(r.instalacion)+'</span></div>'+
+        '<div class="summary-row"><span>Técnico/a</span><span>'+esc(r.tecnico)+'</span></div>'+
+        '<div class="summary-row"><span>Fecha</span><span>'+r.fecha+'</span></div>'+
+        (r.peso? '<div class="summary-row"><span>Peso de muestra</span><span>'+r.peso+' kg</span></div>' : '') +
+        '<div class="summary-row"><span>Geolocalización</span><span>Capturada al cierre</span></div>'+
+      '</div>'+
+      materialsCard(r)+
+      photosCard(r)+
+      incidenciasCard(r)+
+      '<div class="banner">'+
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>'+
+        '<div>Registro validado en campo: campos obligatorios, fotografías y geolocalización comprobados antes del cierre, conforme al protocolo de caracterización de la ARC.</div>'+
+      '</div>'+
+      '<button class="btn primary block" id="reportBtn">'+
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5h5"/><path d="M6 3h8l5 5v13H6z"/><path d="M9 13h6M9 17h6"/></svg>'+
+        'Generar informe'+
+      '</button>';
+    document.getElementById("backBtn").addEventListener("click", function(){ goto(current==="new"?"home":current) });
+    document.getElementById("reportBtn").addEventListener("click", function(){ renderReport(r.id); });
+  }
+
+  function photosCard(r){
+    var fixed = [
+      {key:"bascula", label:"Tique de báscula"},
+      {key:"escalimetro", label:"Escalímetro 50 cm"},
+      {key:"cartel", label:"Cartel del circuito"}
+    ].filter(function(s){ return r.photos && r.photos[s.key]; });
+    var matPhotoIds = r.fotosMateriales ? Object.keys(r.fotosMateriales).filter(function(k){ return r.fotosMateriales[k]; }) : [];
+    if(!fixed.length && !matPhotoIds.length) return "";
+    var figs = fixed.map(function(s){
+      return '<figure><img src="'+r.photos[s.key]+'" alt=""><figcaption>'+s.label+'</figcaption></figure>';
+    }).concat(matPhotoIds.map(function(matId){
+      return '<figure><img src="'+r.fotosMateriales[matId]+'" alt=""><figcaption>'+esc(materialLabel(r.tipo,matId))+'</figcaption></figure>';
+    }));
+    return '<div class="card"><div class="section-label" style="margin-bottom:10px">Fotografías / evidencias ('+figs.length+')</div>'+
+      '<div class="photo-report-grid">'+figs.join("")+'</div></div>';
+  }
+
+  function incidenciasCard(r){
+    var incs = r.incidencias || [];
+    if(!incs.length) return "";
+    var rows = incs.map(function(i){
+      return '<div class="inc-item">'+
+        (i.foto? '<img class="ithumb" src="'+i.foto+'" alt="">' : '<div class="ithumb" style="display:flex;align-items:center;justify-content:center;color:var(--fg-muted)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg></div>')+
+        '<div class="itext">'+esc(i.texto)+'</div>'+
+      '</div>';
+    }).join("");
+    return '<div class="card"><div class="section-label" style="margin-bottom:10px">Incidencias ('+incs.length+')</div><div style="display:flex;flex-direction:column;gap:8px">'+rows+'</div></div>';
+  }
+
+  function materialsCard(r){
+    var mats = r.materials || {};
+    var entries = Object.keys(mats).filter(function(k){ return parseFloat(mats[k])>0; })
+      .map(function(k){ return {label: materialLabel(r.tipo,k), kg: parseFloat(mats[k])}; })
+      .sort(function(a,b){ return b.kg-a.kg; });
+    if(!entries.length) return "";
+    var total = entries.reduce(function(s,e){ return s+e.kg; },0);
+    var rows = entries.map(function(e){
+      return '<div class="summary-row"><span>'+e.label+'</span><span>'+round1(e.kg)+' kg</span></div>';
+    }).join("");
+    return '<div class="card"><div class="section-label" style="margin-bottom:10px">Composición de materiales ('+round1(total)+' kg)</div>'+rows+'</div>';
+  }
+
+  /* ---------- INFORME (generado a partir de un registro) ---------- */
+  function renderReport(id){
+    var r = state.records.filter(function(x){return x.id===id})[0];
+    if(!r) return;
+    setTop("Informe de caracterización", r.circuito+" · Lote "+r.lote);
+
+    var mats = r.materials || {};
+    var matEntries = Object.keys(mats).filter(function(k){ return parseFloat(mats[k])>0; })
+      .map(function(k){ return {label: materialLabel(r.tipo,k), kg: parseFloat(mats[k])}; })
+      .sort(function(a,b){ return b.kg-a.kg; });
+    var matTotal = matEntries.reduce(function(s,e){ return s+e.kg; },0);
+    var matChart = donutChartHTML(matEntries, matTotal);
+
+    var fixedShots = [
+      {key:"bascula", label:"Tique de báscula"},
+      {key:"escalimetro", label:"Escalímetro 50 cm"},
+      {key:"cartel", label:"Cartel del circuito"}
+    ].filter(function(s){ return r.photos && r.photos[s.key]; });
+    var matPhotoIds = r.fotosMateriales ? Object.keys(r.fotosMateriales).filter(function(k){ return r.fotosMateriales[k]; }) : [];
+    var figs = fixedShots.map(function(s){
+      return '<figure><img src="'+r.photos[s.key]+'" alt=""><figcaption>'+s.label+'</figcaption></figure>';
+    }).concat(matPhotoIds.map(function(matId){
+      return '<figure><img src="'+r.fotosMateriales[matId]+'" alt=""><figcaption>'+esc(materialLabel(r.tipo,matId))+'</figcaption></figure>';
+    }));
+
+    var incs = r.incidencias || [];
+    var incBlock = incs.length ? incs.map(function(i){
+      return '<div class="inc-item">'+
+        (i.foto? '<img class="ithumb" src="'+i.foto+'" alt="">' : '')+
+        '<div class="itext">'+esc(i.texto)+'</div>'+
+      '</div>';
+    }).join("") : '<div style="font-size:12.5px;color:var(--fg-muted)">Sin incidencias registradas.</div>';
+
+    var reportTitle = "Informe " + typeLabel(r.tipo) + " · Lote " + r.lote + " · " + r.fecha;
+    var reportCards =
+      '<div class="card">'+
+        '<div class="section-label" style="margin-bottom:2px">Informe de caracterización</div>'+
+        '<h2 style="font-size:18px; margin:4px 0 12px">'+typeLabel(r.tipo)+' · Lote '+r.lote+'</h2>'+
+        '<div class="summary-row"><span>Expediente</span><span>ARC-2027-6</span></div>'+
+        '<div class="summary-row"><span>Entidad</span><span>Fundació Privada Trinijove</span></div>'+
+        '<div class="summary-row"><span>Circuito</span><span>'+esc(r.circuito)+'</span></div>'+
+        '<div class="summary-row"><span>Instalación</span><span>'+esc(r.instalacion)+'</span></div>'+
+        '<div class="summary-row"><span>Técnico/a</span><span>'+esc(r.tecnico)+'</span></div>'+
+        '<div class="summary-row"><span>Fecha</span><span>'+r.fecha+'</span></div>'+
+        (r.peso? '<div class="summary-row"><span>Peso de muestra</span><span>'+r.peso+' kg</span></div>' : '')+
+      '</div>'+
+      '<div class="card">'+
+        '<div class="section-label" style="margin-bottom:10px">Composición de materiales'+(matTotal? ' ('+round1(matTotal)+' kg)':'')+'</div>'+
+        (matChart || '<div style="font-size:12.5px;color:var(--fg-muted)">Sin desglose de materiales registrado.</div>')+
+      '</div>'+
+      (figs.length? '<div class="card"><div class="section-label" style="margin-bottom:10px">Evidencias fotográficas ('+figs.length+')</div><div class="photo-report-grid">'+figs.join("")+'</div></div>' : '')+
+      '<div class="card">'+
+        '<div class="section-label" style="margin-bottom:10px">Incidencias ('+incs.length+')</div>'+
+        '<div style="display:flex;flex-direction:column;gap:8px">'+incBlock+'</div>'+
+      '</div>'+
+      '<div style="font-size:10.5px; color:var(--fg-muted); text-align:center; padding:4px 0 10px">Informe generado automáticamente por la Hoja de campo digital — Fundació Privada Trinijove</div>';
+
+    main.innerHTML =
+      '<div class="no-print" style="display:flex; flex-direction:column; gap:10px">'+
+        '<button class="btn ghost" id="backBtn" style="align-self:flex-start">&larr; Volver</button>'+
+        '<button class="btn primary block" id="pdfBtn">'+
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5h5"/><path d="M6 3h8l5 5v13H6z"/><path d="M9 13h6M9 17h6"/></svg>'+
+          'Descargar informe (PDF)'+
+        '</button>'+
+        '<div style="font-size:11.5px; color:var(--fg-muted); text-align:center">Se descarga como página web; al abrirla aparece automáticamente el diálogo de impresión para guardarla como PDF.</div>'+
+      '</div>'+
+      reportCards;
+
+    document.getElementById("backBtn").addEventListener("click", function(){ openRecord(id); });
+    document.getElementById("pdfBtn").addEventListener("click", function(){
+      var pdfBtn = document.getElementById("pdfBtn");
+      pdfBtn.disabled = true;
+      toast("Generando informe…");
+      // watchdog: si por lo que sea nunca llega la respuesta (móvil lento, capability
+      // que no contesta…), no dejamos el botón bloqueado ni al usuario sin ninguna señal
+      var settled = false;
+      var watchdog = setTimeout(function(){
+        if(settled) return; settled = true;
+        pdfBtn.disabled = false;
+        toast("No se pudo generar el informe (tardó demasiado). Inténtalo de nuevo.");
+      }, 12000);
+      function finish(fn){ if(settled) return; settled = true; clearTimeout(watchdog); fn(); }
+      try{
+        var filenameBase = "informe_"+r.tipo+"_lote"+r.lote+"_"+r.fecha;
+        var html = standaloneReportHTML(reportTitle, reportCards);
+        downloadFile(filenameBase+".html", html, function(res){
+          finish(function(){
+            pdfBtn.disabled = false;
+            if(res.ok){ toast("Informe descargado — ábrelo para guardarlo como PDF"); return; }
+            if(res.reason==="declined") return;
+            toast("No se pudo descargar el informe (motivo: "+(res.reason||"desconocido")+"). Abre el enlace del artefacto directamente en el navegador.");
+          });
+        });
+      }catch(e){
+        finish(function(){
+          pdfBtn.disabled = false;
+          toast("No se pudo generar el informe: "+(e && e.message ? e.message : "error desconocido"));
+        });
+      }
+    });
+  }
+
+  /* ---------- WIZARD (nueva caracterización) ---------- */
+  function startWizard(){
+    wizard = {
+      step:1,
+      lote:null, tipo:null, instalacion:null, circuito:"", tecnico:state.tecnicos[0],
+      peso:"", materials:{}, materialsOpen:{}, photos:{bascula:null, escalimetro:null, cartel:null},
+      fotosMateriales:{}, incidencias:[], incNueva:null,
+      tecManage:false, tecNuevo:"",
+      geo:null
+    };
+    current="new";
+    tabs.forEach(function(b){ b.classList.toggle("active", b.dataset.tab==="new"); });
+    render();
+  }
+
+  var WIZARD_STEPS = ["Datos","Peso","Materiales","Fotos","Revisión"];
+
+  function renderWizard(){
+    if(!wizard) wizard = {step:1, lote:null, tipo:null, instalacion:null, circuito:"", tecnico:state.tecnicos[0], peso:"", materials:{}, materialsOpen:{0:true}, photos:{bascula:null,escalimetro:null,cartel:null}, fotosMateriales:{}, incidencias:[], incNueva:null, tecManage:false, tecNuevo:"", geo:null};
+    setTop("Nueva caracterización", WIZARD_STEPS[wizard.step-1]+" · paso "+wizard.step+" de 5");
+
+    var stepsHtml = '<div class="steps">'+[1,2,3,4,5].map(function(n){
+      var cls = n<wizard.step?"done":(n===wizard.step?"now":"");
+      return '<i class="'+cls+'"></i>';
+    }).join("")+'</div>'+
+    '<div style="display:flex; justify-content:space-between; margin-top:-6px">'+
+      WIZARD_STEPS.map(function(s,i){
+        var n=i+1, active = n===wizard.step;
+        return '<span style="font-size:10px; font-weight:700; letter-spacing:.02em; color:'+(active?"var(--accent-ink)":"var(--fg-muted)")+'">'+s+'</span>';
+      }).join("")+
+    '</div>';
+
+    var body = "";
+    if(wizard.step===1) body = stepBasics();
+    else if(wizard.step===2) body = stepWeight();
+    else if(wizard.step===3) body = stepMaterials();
+    else if(wizard.step===4) body = stepPhotos();
+    else body = stepReview();
+
+    main.innerHTML = stepsHtml + body;
+    wireStep();
+  }
+
+  function stepBasics(){
+    var loteChips = [1,2].map(function(l){
+      return '<button type="button" class="chip '+(wizard.lote===l?"sel":"")+'" data-lote="'+l+'">Lote '+l+'</button>';
+    }).join("");
+    var tipos = TYPES.filter(function(t){ return !wizard.lote || t.lote.indexOf(wizard.lote)>-1; });
+    var tipoChips = tipos.map(function(t){
+      return '<button type="button" class="chip '+(wizard.tipo===t.id?"sel":"")+'" data-tipo="'+t.id+'">'+t.label+'</button>';
+    }).join("");
+    var insts = wizard.lote? INSTALACIONES[wizard.lote] : [];
+    var instOptions = insts.map(function(i){ return '<option '+(wizard.instalacion===i?"selected":"")+'>'+esc(i)+'</option>' }).join("");
+
+    var tecChips = state.tecnicos.map(function(t){
+      return '<button type="button" class="chip '+(wizard.tecnico===t?"sel":"")+'" data-tec="'+esc(t)+'">'+esc(t)+'</button>';
+    }).join("");
+    var tecManageRows = state.tecnicos.map(function(t){
+      return '<div class="inc-item" style="align-items:center; padding:8px 10px">'+
+        '<div class="itext">'+esc(t)+'</div>'+
+        '<button type="button" class="idel" data-tecdel="'+esc(t)+'">Quitar</button>'+
+      '</div>';
+    }).join("");
+    var tecSection = '<div>'+
+      '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px">'+
+        '<div class="section-label">Técnico/a</div>'+
+        '<button type="button" class="btn ghost small" id="tecManageBtn">'+(wizard.tecManage?"Cerrar":"Editar técnicos")+'</button>'+
+      '</div>'+
+      '<div class="chiprow">'+(tecChips||'<span style="font-size:12.5px;color:var(--fg-muted)">Añade un técnico/a</span>')+'</div>'+
+      (wizard.tecManage?
+        '<div style="display:flex;flex-direction:column;gap:8px; margin-top:10px">'+
+          tecManageRows+
+          '<div style="display:flex; gap:8px">'+
+            '<input id="tecNuevo" type="text" placeholder="Nombre del nuevo técnico/a" style="flex:1; font-family:inherit; font-size:13px; padding:9px 10px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--fg)">'+
+            '<button type="button" class="btn primary small" id="tecAddBtn">Añadir</button>'+
+          '</div>'+
+        '</div>' : '')+
+    '</div>';
+
+    return '<div class="card field-row">'+
+      '<div>'+
+        '<div class="section-label" style="margin-bottom:8px">Lote</div>'+
+        '<div class="chiprow">'+loteChips+'</div>'+
+      '</div>'+
+      '<div>'+
+        '<div class="section-label" style="margin-bottom:8px">Tipo de caracterización</div>'+
+        '<div class="chiprow" id="tipoChips">'+(tipoChips||'<span style="font-size:12.5px;color:var(--fg-muted)">Selecciona primero un lote</span>')+'</div>'+
+      '</div>'+
+      '<label class="field">Instalación<select id="fInstalacion" '+(wizard.lote?"":"disabled")+'><option value="">Selecciona…</option>'+instOptions+'</select></label>'+
+      '<label class="field">Circuito<input id="fCircuito" type="text" placeholder="p. ej. BCN-014" value="'+esc(wizard.circuito)+'"></label>'+
+      tecSection+
+    '</div>'+
+    '<button class="btn primary block" id="nextBtn">Continuar</button>';
+  }
+
+  function stepWeight(){
+    var t = TYPES.filter(function(x){return x.id===wizard.tipo})[0];
+    var showTol = t && t.tol;
+    var tolHtml = "";
+    if(showTol){
+      var v = parseFloat(wizard.peso);
+      if(!isNaN(v)){
+        var lo = t.tol.target*(1-t.tol.pct), hi = t.tol.target*(1+t.tol.pct);
+        var ok = v>=Math.max(lo, t.tol.min) && v<=hi;
+        tolHtml = '<div class="tolerance '+(ok?"ok":"warn")+'">'+
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+(ok?'<path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/>':'<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>')+'</svg>'+
+          (ok? 'Dentro de tolerancia (250 kg ±10%, mín. 225 kg)' : 'Fuera de tolerancia del protocolo — revisa la muestra')+
+        '</div>';
+      } else {
+        tolHtml = '<div style="font-size:11.5px;color:var(--fg-muted)">Tolerancia del protocolo: 250 kg ±10% (mínimo 225 kg)</div>';
+      }
+    }
+    return '<div class="card field-row">'+
+      '<label class="field">Peso de la muestra (kg)<input id="fPeso" inputmode="decimal" type="text" autocomplete="off" placeholder="Ej. 248" value="'+esc(wizard.peso)+'"></label>'+
+      tolHtml+
+      '<label class="field">Observaciones de campo (opcional)<textarea id="fObs" placeholder="Incidencias, condiciones meteorológicas, etc."></textarea></label>'+
+    '</div>'+
+    '<div class="btn-row" style="display:flex; gap:10px">'+
+      '<button class="btn ghost" id="backBtn" style="flex:1">Atrás</button>'+
+      '<button class="btn primary" id="nextBtn" style="flex:2">Continuar</button>'+
+    '</div>';
+  }
+
+  function stepMaterials(){
+    var groups = materialsFor(wizard.tipo);
+    var total = Object.keys(wizard.materials).reduce(function(s,k){ return s + (parseFloat(wizard.materials[k])||0); }, 0);
+    var target = parseFloat(wizard.peso) || 0;
+    var diff = target - total;
+    var closeEnough = target>0 && Math.abs(diff) <= Math.max(0.5, target*0.02);
+    var q = (wizard.materialsFilter||"").trim().toLowerCase();
+
+    var groupsHtml = groups.map(function(g, gi){
+      var items = g.items;
+      var groupMatches = !q || g.group.toLowerCase().indexOf(q)>-1;
+      if(q && !groupMatches){
+        items = items.filter(function(it){ return it.label.toLowerCase().indexOf(q)>-1; });
+        if(!items.length) return "";
+      }
+      var hasData = g.items.some(function(it){ return wizard.materials[it.id]!==undefined && wizard.materials[it.id]!==""; });
+      var open = q ? true : (wizard.materialsOpen[gi] || hasData);
+      var groupTotal = g.items.reduce(function(s,it){ return s + (parseFloat(wizard.materials[it.id])||0); }, 0);
+      var groupPhotoCount = g.items.filter(function(it){ return wizard.fotosMateriales[it.id]; }).length;
+      var rows = items.map(function(it){
+        var v = wizard.materials[it.id]!==undefined ? wizard.materials[it.id] : "";
+        var photoUrl = wizard.fotosMateriales[it.id];
+        return '<div style="display:flex; align-items:center; gap:8px; padding:7px 0">'+
+          (photoUrl?
+            '<div class="fslot filled" data-matphoto="'+it.id+'" style="width:30px;height:30px;flex:none"><img src="'+photoUrl+'" alt=""></div>'
+            : '<button type="button" class="fraccam" data-matphoto="'+it.id+'" style="width:30px;height:30px;flex:none;border:1px solid var(--border);border-radius:8px" title="Foto de este material"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h3l1.5-2h5L14 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/><circle cx="12" cy="13.5" r="3.4"/></svg></button>')+
+          '<span style="flex:1; font-size:12.5px">'+it.label+'</span>'+
+          '<input class="matinput" data-mat="'+it.id+'" type="text" inputmode="decimal" autocomplete="off" placeholder="0" value="'+esc(v)+'" style="width:74px; text-align:right; font-family:inherit; font-size:13px; padding:7px 9px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--fg)">'+
+          '<span style="font-size:11px; color:var(--fg-muted); width:16px">kg</span>'+
+        '</div>';
+      }).join("");
+      return '<div class="card" style="padding:0; overflow:hidden">'+
+        '<button type="button" class="matgroup-toggle" data-gi="'+gi+'" style="width:100%; display:flex; align-items:center; gap:10px; background:none; border:none; padding:13px 15px; cursor:pointer; font-family:inherit; text-align:left">'+
+          (hasData? '<span style="width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none"></span>' : '')+
+          '<span style="flex:1; font-size:13.5px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">'+g.group+'</span>'+
+          (groupPhotoCount? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M3 7h3l1.5-2h5L14 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/><circle cx="12" cy="13.5" r="3.4"/></svg>' : '')+
+          (groupTotal>0? '<span class="pill ok">'+round1(groupTotal)+' kg</span>' : '')+
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate('+(open?90:0)+'deg); transition:transform .15s; flex:none"><path d="M9 6l6 6-6 6"/></svg>'+
+        '</button>'+
+        (open? '<div style="padding:2px 15px 13px; border-top:1px solid var(--border)">'+rows+'</div>' : '')+
+      '</div>';
+    }).join("");
+
+    return '<div class="banner">'+
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 10h16M10 10v10"/></svg>'+
+        '<div>Categorías del protocolo oficial de caracterización de '+(wizard.tipo==="FORM"?"la fracción orgánica":"fracción resto y rechazos")+' de la ARC. Introduce el peso de cada material encontrado y toca el icono de cámara para fotografiarlo.</div>'+
+      '</div>'+
+      '<div style="position:relative">'+
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--fg-muted); pointer-events:none"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>'+
+        '<input id="matFilter" type="text" placeholder="Buscar material (p. ej. vidre, film, RAEE…)" value="'+esc(wizard.materialsFilter||"")+'" style="width:100%; font-family:inherit; font-size:13.5px; padding:11px 12px 11px 36px; border-radius:10px; border:1px solid var(--border); background:var(--surface); color:var(--fg)">'+
+      '</div>'+
+      '<div class="card" style="position:sticky; top:calc(64px + env(safe-area-inset-top,0px)); z-index:3">'+
+        '<div class="tolerance '+(target===0? "": (closeEnough?"ok":"warn"))+'" style="'+(target===0?"background:var(--surface-2); color:var(--fg-muted)":"")+'">'+
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+(closeEnough?'<path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/>':'<path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/>')+'</svg>'+
+          '<span>Clasificado: <b>'+round1(total)+' kg</b>'+(target>0? ' de '+round1(target)+' kg de muestra ('+(diff>=0?"faltan ":"exceso de ")+round1(Math.abs(diff))+' kg)' : ' — introduce antes el peso de la muestra en el paso 2')+'</span>'+
+        '</div>'+
+      '</div>'+
+      groupsHtml+
+    '<div style="display:flex; gap:10px">'+
+      '<button class="btn ghost" id="backBtn" style="flex:1">Atrás</button>'+
+      '<button class="btn primary" id="nextBtn" style="flex:2">Continuar</button>'+
+    '</div>';
+  }
+  function round1(n){ return Math.round(n*10)/10; }
+
+  // Genera un .html independiente (con sus propios estilos, sin depender de la
+  // página) para cuando el botón "Imprimir" no abre el diálogo del navegador
+  // (algunos visores empotrados bloquean window.print()). Se puede abrir en
+  // cualquier navegador y desde ahí imprimir / guardar como PDF.
+  function standaloneReportHTML(title, bodyHtml){
+    return '<!doctype html><html lang="es"><head><meta charset="utf-8">'+
+      '<meta name="viewport" content="width=device-width, initial-scale=1">'+
+      '<title>'+esc(title)+'</title><style>'+
+      ':root{--c1:#2a78d6;--c2:#eb6834;--c3:#1baf7a;--c4:#eda100;--c5:#e87ba4;--c6:#008300;--c-other:#a7ab99;--fg:#1a1a1a;--fg-muted:#5b5f52;--border:#dfe3d2;--surface-2:#eef1e0;--danger:#b3261e}'+
+      'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#fff;color:#1a1a1a;margin:0;padding:20px 16px;max-width:640px}'+
+      'body,html{margin-left:auto;margin-right:auto}'+
+      '.card{border:1px solid #dfe3d2;border-radius:14px;padding:16px;margin-bottom:14px}'+
+      '.section-label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#5b5f52;font-weight:700}'+
+      'h2{font-size:18px;margin:4px 0 12px;font-family:inherit}'+
+      '.summary-row{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:8px 0;border-bottom:1px solid #dfe3d2}'+
+      '.summary-row:last-child{border-bottom:none}'+
+      '.summary-row span:first-child{color:#5b5f52}'+
+      '.summary-row span:last-child{font-weight:700;text-align:right}'+
+      '.photo-report-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}'+
+      '.photo-report-grid figure{margin:0;display:flex;flex-direction:column;gap:5px}'+
+      '.photo-report-grid img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;border:1px solid #dfe3d2;background:#eef1e0}'+
+      '.photo-report-grid figcaption{font-size:11px;color:#5b5f52}'+
+      '.chart-legend .lrow{display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:6px}'+
+      '.chart-legend .ldot{width:10px;height:10px;border-radius:3px;flex:none;display:inline-block}'+
+      '.chart-legend .llabel{flex:1}'+
+      '.chart-legend .lval{font-weight:700}'+
+      '.inc-item{display:flex;gap:10px;padding:10px;border:1px solid #dfe3d2;border-radius:12px;background:#eef1e0;margin-bottom:8px}'+
+      '.inc-item img{width:44px;height:44px;border-radius:8px;object-fit:cover;flex:none}'+
+      '.print-bar{display:flex;justify-content:center;margin-bottom:16px}'+
+      '.print-bar button{font:inherit;font-weight:700;font-size:14px;padding:10px 18px;border-radius:10px;border:none;background:#cdde00;color:#1a1a1a;cursor:pointer}'+
+      '@media print{ body{padding:0} .no-print{display:none !important} }'+
+      '</style></head><body>'+
+      '<div class="print-bar no-print"><button onclick="window.print()">Imprimir / Guardar como PDF</button></div>'+
+      bodyHtml+
+      '<script>window.addEventListener("load",function(){ setTimeout(function(){ try{ window.print(); }catch(e){} }, 350); });<\/script>'+
+      '</body></html>';
+  }
+  // Descarga usando la capability oficial "downloads" (funciona dentro del visor de
+  // artefactos embebido en claude.ai). Si esa capability no está disponible — p.ej. cuando
+  // el artefacto se abre como página propia, fuera del visor embebido, algo que puede pasar
+  // en el navegador del móvil — no hay "host" al que pedir permiso, así que probamos el
+  // método clásico de descarga (blob + enlace), que sí funciona fuera del visor.
+  function downloadFileViaBlobLink(filename, data){
+    try{
+      var blob = (data instanceof Blob) ? data : new Blob([data], {type:"text/html"});
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+      return true;
+    }catch(e){ return false; }
+  }
+  function downloadFile(filename, data, cb){
+    function fallback(reason){
+      if(downloadFileViaBlobLink(filename, data)){ cb({ok:true, via:"blob"}); }
+      else { cb({ok:false, reason:reason}); }
+    }
+    if(!(window.claude && window.claude.use)){ fallback("unavailable"); return; }
+    window.claude.use("downloads").then(function(downloads){
+      if(!downloads){ fallback("unavailable"); return; }
+      downloads.save({filename:filename, data:data}).then(function(res){
+        cb({ok:true, status:res && res.status});
+      }).catch(function(err){
+        var code = (err && err.code) || "unavailable";
+        if(code==="declined"){ cb({ok:false, reason:"declined"}); return; }
+        fallback(code);
+      });
+    }).catch(function(){ fallback("unavailable"); });
+  }
+
+  /* ---------- diagrama de sectores (composición por fracción) ---------- */
+  var CHART_SLOTS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
+  function donutChartHTML(entries, totalKg){
+    if(!entries.length || totalKg<=0) return "";
+    var MAX = 6;
+    var slices = entries.slice(0, MAX);
+    if(entries.length>MAX){
+      var restKg = entries.slice(MAX).reduce(function(s,e){ return s+e.kg; },0);
+      slices = slices.concat([{label:"Otros", kg:restKg, other:true}]);
+    }
+    var size=176, sw=28, r=(size-sw)/2, cx=size/2, cy=size/2, C=2*Math.PI*r;
+    var offset=0, gap = slices.length>1?3:0;
+    var arcs = slices.map(function(e,i){
+      var frac = e.kg/totalKg;
+      var len = frac*C;
+      var dash = Math.max(len-gap,0);
+      var color = e.other ? "var(--c-other)" : CHART_SLOTS[i];
+      var seg = '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+color+'" stroke-width="'+sw+'" '+
+        'stroke-dasharray="'+dash+' '+(C-dash)+'" stroke-dashoffset="'+(-offset).toFixed(2)+'" transform="rotate(-90 '+cx+' '+cy+')"/>';
+      offset += len;
+      return seg;
+    }).join("");
+    var svg = '<svg viewBox="0 0 '+size+' '+size+'" width="'+size+'" height="'+size+'" role="img" aria-label="Composición por fracción">'+
+      arcs+
+      '<text x="'+cx+'" y="'+(cy-4)+'" text-anchor="middle" font-size="20" font-weight="700" fill="var(--fg)" font-family="inherit">'+round1(totalKg)+'</text>'+
+      '<text x="'+cx+'" y="'+(cy+15)+'" text-anchor="middle" font-size="10.5" fill="var(--fg-muted)" font-family="inherit">kg clasificados</text>'+
+    '</svg>';
+    var legend = slices.map(function(e,i){
+      var pct = round1(e.kg/totalKg*100);
+      var color = e.other ? "var(--c-other)" : CHART_SLOTS[i];
+      return '<div class="lrow"><span class="ldot" style="background:'+color+'"></span><span class="llabel">'+esc(e.label)+'</span><span class="lval">'+pct+'% · '+round1(e.kg)+' kg</span></div>';
+    }).join("");
+    return '<div style="display:flex; flex-direction:column; align-items:center; gap:14px">'+
+      '<div style="flex:none">'+svg+'</div>'+
+      '<div class="chart-legend" style="width:100%">'+legend+'</div>'+
+    '</div>';
+  }
+
+  function stepPhotos(){
+    var shots = [
+      {key:"bascula", label:"Tique de báscula"},
+      {key:"escalimetro", label:"Escalímetro 50 cm"},
+      {key:"cartel", label:"Cartel del circuito"}
+    ];
+    var grid = shots.map(function(s){
+      var url = wizard.photos[s.key];
+      return '<div class="pshot '+(url?"filled":"")+'" data-shotslot="'+s.key+'">'+
+        (url? '<img src="'+url+'" alt=""><div class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg></div>' : '+ '+s.label)+
+      '</div>';
+    }).join("");
+
+    // resumen de las fotos por material ya adjuntadas en el paso «Materiales» (ahí está el acceso a la cámara de cada material)
+    var matDone = Object.keys(wizard.fotosMateriales).filter(function(k){ return wizard.fotosMateriales[k]; });
+    var fracHtml = matDone.length ?
+      '<div class="banner">'+
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>'+
+        '<div>'+matDone.length+' material(es) con foto de evidencia adjuntada en el paso «Materiales».</div>'+
+      '</div>' : "";
+
+    // incidencias
+    var incRows = wizard.incidencias.map(function(i){
+      return '<div class="inc-item">'+
+        (i.foto? '<img class="ithumb" src="'+i.foto+'" alt="">' : '<div class="ithumb" style="display:flex;align-items:center;justify-content:center;color:var(--fg-muted)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg></div>')+
+        '<div class="itext">'+esc(i.texto)+'</div>'+
+        '<button type="button" class="idel" data-incdel="'+i.id+'">Quitar</button>'+
+      '</div>';
+    }).join("");
+    var incForm = "";
+    if(wizard.incNueva!==null){
+      incForm = '<div class="inc-item" style="flex-direction:column; align-items:stretch; gap:8px">'+
+        '<textarea id="incTexto" placeholder="Describe la incidencia (residuo impropio, riesgo, anomalía del circuito, etc.)" style="font-family:inherit; font-size:13px; padding:9px 10px; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--fg); min-height:56px">'+esc(wizard.incNueva.texto||"")+'</textarea>'+
+        '<div style="display:flex; align-items:center; gap:10px">'+
+          '<div class="fslot '+(wizard.incNueva.foto?"filled":"")+'" style="width:52px;height:52px;flex:none" data-incfotoslot="1">'+
+            (wizard.incNueva.foto? '<img src="'+wizard.incNueva.foto+'" alt="">' : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.2"/><path d="M8 6l1.5-2h5L16 6"/></svg>')+
+          '</div>'+
+          '<button type="button" class="btn ghost small" id="incCancel">Cancelar</button>'+
+          '<button type="button" class="btn primary small" id="incGuardar" style="margin-left:auto">Guardar incidencia</button>'+
+        '</div>'+
+      '</div>';
+    }
+
+    var matTotal = Object.keys(wizard.materials).reduce(function(s,k){ return s + (parseFloat(wizard.materials[k])||0); }, 0);
+    var pesoNum = parseFloat(wizard.peso)||0;
+    var matOk = pesoNum>0 && Math.abs(pesoNum-matTotal) <= Math.max(0.5, pesoNum*0.02);
+    var checks = [
+      {ok:!!wizard.photos.bascula, t:"Tique de báscula", s:"Entrada y salida del vehículo, legible"},
+      {ok:!!wizard.photos.escalimetro, t:"Escalímetro de 50 cm", s:"Visible en voluminosos e impropios"},
+      {ok:!!wizard.photos.cartel, t:"Cartel identificativo", s:"Circuito e instalación legibles"},
+      {ok: !!wizard.peso, t:"Peso de muestra registrado", s:"Coherente con la tolerancia del protocolo"},
+      {ok: matOk, t:"Composición de materiales cuadrada", s:"Sumatorio de subfracciones coherente con el total declarado ("+round1(matTotal)+" kg)"}
+    ];
+    var checklist = checks.map(function(c){
+      return '<div class="checkitem '+(c.ok?"done":"")+'">'+
+        '<div class="box">'+(c.ok?'<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg>':'')+'</div>'+
+        '<div><b>'+c.t+'</b><span>'+c.s+'</span></div>'+
+      '</div>';
+    }).join("");
+
+    return '<div class="card">'+
+      '<div class="section-label" style="margin-bottom:10px">Fotografías obligatorias</div>'+
+      '<div class="photogrid">'+grid+'</div>'+
+      '<div style="font-size:10.5px;color:var(--fg-muted);margin-top:8px">Toca cada casilla para hacer o adjuntar la foto.</div>'+
+    '</div>'+
+    fracHtml+
+    '<div class="card">'+
+      '<div class="section-label" style="margin-bottom:10px">Incidencias</div>'+
+      (incRows? '<div style="display:flex;flex-direction:column;gap:8px; margin-bottom:'+(incForm?"8px":"0")+'">'+incRows+'</div>' : '')+
+      incForm+
+      (wizard.incNueva===null? '<button type="button" class="btn ghost block" id="incAdd" style="margin-top:'+(incRows?"8px":"0")+'">+ Añadir incidencia</button>' : '')+
+    '</div>'+
+    '<div class="card">'+
+      '<div class="section-label" style="margin-bottom:10px">Validación antes de cerrar</div>'+
+      '<div class="checklist">'+checklist+'</div>'+
+    '</div>'+
+    '<div style="display:flex; gap:10px">'+
+      '<button class="btn ghost" id="backBtn" style="flex:1">Atrás</button>'+
+      '<button class="btn primary" id="nextBtn" style="flex:2">Continuar</button>'+
+    '</div>';
+  }
+
+  function stepReview(){
+    var geo = wizard.geo;
+    var matEntries = Object.keys(wizard.materials).filter(function(k){ return parseFloat(wizard.materials[k])>0; });
+    var matTotal = matEntries.reduce(function(s,k){ return s + parseFloat(wizard.materials[k]); }, 0);
+    var topMats = matEntries.map(function(k){ return {label: materialLabel(wizard.tipo,k), kg: parseFloat(wizard.materials[k])}; })
+      .sort(function(a,b){ return b.kg-a.kg; }).slice(0,4);
+    var matRows = topMats.map(function(m){
+      return '<div class="summary-row"><span>'+m.label+'</span><span>'+round1(m.kg)+' kg</span></div>';
+    }).join("");
+
+    return '<div class="card">'+
+      '<div class="section-label" style="margin-bottom:10px">Resumen de la caracterización</div>'+
+      '<div class="summary-row"><span>Lote</span><span>Lote '+wizard.lote+'</span></div>'+
+      '<div class="summary-row"><span>Tipo</span><span>'+typeLabel(wizard.tipo)+'</span></div>'+
+      '<div class="summary-row"><span>Instalación</span><span>'+esc(wizard.instalacion||"—")+'</span></div>'+
+      '<div class="summary-row"><span>Circuito</span><span>'+esc(wizard.circuito||"—")+'</span></div>'+
+      '<div class="summary-row"><span>Técnico/a</span><span>'+esc(wizard.tecnico)+'</span></div>'+
+      '<div class="summary-row"><span>Peso de muestra</span><span>'+(wizard.peso||"—")+' kg</span></div>'+
+      '<div class="summary-row"><span>Fotografías obligatorias</span><span>'+Object.values(wizard.photos).filter(Boolean).length+' / 3</span></div>'+
+      '<div class="summary-row"><span>Fotos por material</span><span>'+Object.keys(wizard.fotosMateriales).filter(function(k){return wizard.fotosMateriales[k]}).length+'</span></div>'+
+      '<div class="summary-row"><span>Incidencias</span><span>'+wizard.incidencias.length+'</span></div>'+
+    '</div>'+
+    '<div class="card">'+
+      '<div class="section-label" style="margin-bottom:10px">Composición de materiales ('+round1(matTotal)+' kg clasificados)</div>'+
+      (matRows || '<div style="font-size:12.5px;color:var(--fg-muted)">Sin materiales clasificados todavía.</div>')+
+      (matEntries.length>4? '<div style="font-size:11.5px;color:var(--fg-muted); margin-top:6px">+ '+(matEntries.length-4)+' subfracciones más</div>' : '')+
+    '</div>'+
+    '<div class="card">'+
+      '<div class="section-label" style="margin-bottom:10px">Identificación y geolocalización</div>'+
+      '<div class="geobox">'+
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-7.2 7-12a7 7 0 1 0-14 0c0 4.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.4"/></svg>'+
+        '<div><b>'+(geo? geo : "Sin geolocalizar todavía")+'</b><span>Firma digital del técnico vinculada al registro</span></div>'+
+      '</div>'+
+      '<button class="btn ghost block" id="geoBtn" style="margin-top:10px">'+(geo?"Actualizar ubicación":"Capturar ubicación")+'</button>'+
+    '</div>'+
+    '<div style="display:flex; gap:10px">'+
+      '<button class="btn ghost" id="backBtn" style="flex:1">Atrás</button>'+
+      '<button class="btn primary" id="closeBtn" style="flex:2">Cerrar y guardar registro</button>'+
+    '</div>';
+  }
+
+  function wireStep(){
+    var backBtn = document.getElementById("backBtn");
+    if(backBtn) backBtn.addEventListener("click", function(){
+      if(wizard.step===1){ goto("home"); return; }
+      wizard.step--; render();
+    });
+    var nextBtn = document.getElementById("nextBtn");
+    if(nextBtn) nextBtn.addEventListener("click", function(){ wizard.step++; render(); });
+
+    if(wizard.step===1){
+      main.querySelectorAll("[data-lote]").forEach(function(b){
+        b.addEventListener("click", function(){
+          wizard.lote = parseInt(b.dataset.lote,10);
+          if(wizard.tipo){
+            var t = TYPES.filter(function(x){return x.id===wizard.tipo})[0];
+            if(!t || t.lote.indexOf(wizard.lote)===-1) wizard.tipo=null;
+          }
+          wizard.instalacion = null;
+          render();
+        });
+      });
+      main.querySelectorAll("[data-tipo]").forEach(function(b){
+        b.addEventListener("click", function(){ wizard.tipo=b.dataset.tipo; render(); });
+      });
+      var fi = document.getElementById("fInstalacion");
+      if(fi) fi.addEventListener("change", function(){ wizard.instalacion=fi.value; });
+      var fc = document.getElementById("fCircuito");
+      if(fc) fc.addEventListener("input", function(){ wizard.circuito=fc.value; });
+
+      main.querySelectorAll("[data-tec]").forEach(function(b){
+        b.addEventListener("click", function(){ wizard.tecnico=b.dataset.tec; render(); });
+      });
+      var tecManageBtn = document.getElementById("tecManageBtn");
+      if(tecManageBtn) tecManageBtn.addEventListener("click", function(){ wizard.tecManage=!wizard.tecManage; render(); });
+      var tecNuevo = document.getElementById("tecNuevo");
+      if(tecNuevo) tecNuevo.addEventListener("input", function(){ wizard.tecNuevo=tecNuevo.value; });
+      var tecAddBtn = document.getElementById("tecAddBtn");
+      if(tecAddBtn) tecAddBtn.addEventListener("click", function(){
+        var name = (wizard.tecNuevo||(tecNuevo?tecNuevo.value:"")).trim();
+        if(!name){ toast("Escribe el nombre del técnico/a"); return; }
+        if(state.tecnicos.indexOf(name)>-1){ toast("Ese técnico/a ya existe"); return; }
+        state.tecnicos.push(name);
+        save();
+        wizard.tecnico = name;
+        wizard.tecNuevo = "";
+        render();
+      });
+      main.querySelectorAll("[data-tecdel]").forEach(function(b){
+        b.addEventListener("click", function(){
+          var name = b.dataset.tecdel;
+          if(state.tecnicos.length<=1){ toast("Debe quedar al menos un técnico/a"); return; }
+          state.tecnicos = state.tecnicos.filter(function(t){ return t!==name; });
+          save();
+          if(wizard.tecnico===name) wizard.tecnico = state.tecnicos[0];
+          render();
+        });
+      });
+
+      if(nextBtn) nextBtn.disabled = !(wizard.lote && wizard.tipo && wizard.instalacion);
+      if(nextBtn) nextBtn.addEventListener("click", function(e){
+        if(!(wizard.lote && wizard.tipo)){ e.stopImmediatePropagation(); toast("Selecciona lote y tipo de caracterización"); }
+      });
+    }
+
+    if(wizard.step===2){
+      var fp = document.getElementById("fPeso");
+      if(fp) fp.addEventListener("input", function(){
+        wizard.peso = sanitizeDecimal(fp.value);
+        render();
+        refocusEnd("fPeso");
+      });
+    }
+
+    if(wizard.step===3){
+      var matFilter = document.getElementById("matFilter");
+      if(matFilter) matFilter.addEventListener("input", function(){
+        wizard.materialsFilter = matFilter.value;
+        render();
+        var el = document.getElementById("matFilter");
+        if(el){ el.focus(); el.selectionStart=el.selectionEnd=el.value.length; }
+      });
+      main.querySelectorAll(".matgroup-toggle").forEach(function(btn){
+        btn.addEventListener("click", function(){
+          var gi = btn.dataset.gi;
+          wizard.materialsOpen[gi] = !wizard.materialsOpen[gi];
+          render();
+        });
+      });
+      main.querySelectorAll(".matinput").forEach(function(inp){
+        inp.addEventListener("input", function(){
+          var id = inp.dataset.mat;
+          var clean = sanitizeDecimal(inp.value);
+          if(clean==="") delete wizard.materials[id];
+          else wizard.materials[id] = clean;
+          render();
+          refocusEnd(id);
+        });
+      });
+      main.querySelectorAll("[data-matphoto]").forEach(function(el){
+        el.addEventListener("click", function(e){
+          e.stopPropagation();
+          var matId = el.dataset.matphoto;
+          pickPhoto(function(dataUrl){
+            wizard.fotosMateriales[matId] = dataUrl;
+            render();
+          });
+        });
+      });
+    }
+
+    if(wizard.step===4){
+      main.querySelectorAll("[data-shotslot]").forEach(function(el){
+        el.addEventListener("click", function(){
+          var k = el.dataset.shotslot;
+          pickPhoto(function(dataUrl){ wizard.photos[k] = dataUrl; render(); });
+        });
+      });
+
+      var incAdd = document.getElementById("incAdd");
+      if(incAdd) incAdd.addEventListener("click", function(){ wizard.incNueva = {texto:"", foto:null}; render(); });
+      var incCancel = document.getElementById("incCancel");
+      if(incCancel) incCancel.addEventListener("click", function(){ wizard.incNueva = null; render(); });
+      var incTexto = document.getElementById("incTexto");
+      if(incTexto) incTexto.addEventListener("input", function(){ wizard.incNueva.texto = incTexto.value; });
+      var incFotoSlot = main.querySelector("[data-incfotoslot]");
+      if(incFotoSlot) incFotoSlot.addEventListener("click", function(){
+        pickPhoto(function(dataUrl){ wizard.incNueva.foto = dataUrl; render(); });
+      });
+      var incGuardar = document.getElementById("incGuardar");
+      if(incGuardar) incGuardar.addEventListener("click", function(){
+        var texto = (wizard.incNueva.texto||"").trim();
+        if(!texto){ toast("Describe la incidencia antes de guardarla"); return; }
+        wizard.incidencias.push({id:"inc"+Date.now(), texto:texto, foto:wizard.incNueva.foto});
+        wizard.incNueva = null;
+        render();
+      });
+      main.querySelectorAll("[data-incdel]").forEach(function(el){
+        el.addEventListener("click", function(){
+          var id = el.dataset.incdel;
+          wizard.incidencias = wizard.incidencias.filter(function(i){ return i.id!==id; });
+          render();
+        });
+      });
+    }
+
+    if(wizard.step===5){
+      var geoBtn = document.getElementById("geoBtn");
+      if(geoBtn) geoBtn.addEventListener("click", function(){
+        geoBtn.textContent = "Localizando…";
+        if(navigator.geolocation){
+          navigator.geolocation.getCurrentPosition(function(pos){
+            wizard.geo = pos.coords.latitude.toFixed(5)+", "+pos.coords.longitude.toFixed(5);
+            render();
+          }, function(){
+            wizard.geo = "41.42367, 2.18868 (aprox.)";
+            render();
+          }, {timeout:4000});
+        } else {
+          wizard.geo = "41.42367, 2.18868 (aprox.)";
+          render();
+        }
+      });
+      var closeBtn = document.getElementById("closeBtn");
+      if(closeBtn) closeBtn.addEventListener("click", function(){
+        var rec = {
+          id: "c"+Date.now(),
+          tipo: wizard.tipo, lote: wizard.lote, instalacion: wizard.instalacion || "—",
+          tecnico: wizard.tecnico, fecha: new Date().toISOString().slice(0,10),
+          peso: wizard.peso ? parseFloat(wizard.peso) : null,
+          estado: wizard.incidencias.length ? "incidencia" : "completo",
+          circuito: wizard.circuito || "—",
+          materials: Object.assign({}, wizard.materials),
+          photos: Object.assign({}, wizard.photos),
+          fotosMateriales: Object.assign({}, wizard.fotosMateriales),
+          incidencias: wizard.incidencias.slice()
+        };
+        state.records.unshift(rec);
+        save();
+        toast("Registro guardado correctamente");
+        goto("home");
+      });
+    }
+  }
+
+  /* ---------- instalación como app (PWA) ---------- */
+  if("serviceWorker" in navigator){
+    window.addEventListener("load", function(){
+      navigator.serviceWorker.register("sw.js").catch(function(){ /* sin conexión al publicar: se ignora */ });
+    });
+  }
+  var deferredInstall = null;
+  var installBtn = document.getElementById("installBtn");
+  window.addEventListener("beforeinstallprompt", function(e){
+    e.preventDefault();
+    deferredInstall = e;
+    if(installBtn) installBtn.style.display = "flex";
+  });
+  if(installBtn) installBtn.addEventListener("click", function(){
+    if(!deferredInstall) return;
+    deferredInstall.prompt();
+    deferredInstall.userChoice.finally(function(){ deferredInstall = null; installBtn.style.display = "none"; });
+  });
+  window.addEventListener("appinstalled", function(){
+    if(installBtn) installBtn.style.display = "none";
+    toast("App instalada");
+  });
+  // iOS Safari no dispara beforeinstallprompt: en vez de un aviso flotante (que
+  // en algunos navegadores empotrados no se podía cerrar), la instrucción se
+  // añade como texto normal dentro de la tarjeta de inicio — ver installHintText().
+  var IS_IOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  var IS_STANDALONE = window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
+  function installHintText(){
+    if(IS_STANDALONE) return "";
+    if(IS_IOS) return "Para instalarla en iPhone/iPad: toca Compartir y luego «Añadir a pantalla de inicio».";
+    return "Para instalarla, toca el icono de instalación arriba a la derecha (o el menú de tu navegador → «Instalar app» / «Añadir a pantalla de inicio»).";
+  }
+
+  render();
+})();
+</script>
+
+</body></html>
