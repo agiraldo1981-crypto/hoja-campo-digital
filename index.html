@@ -1522,7 +1522,12 @@ a{color:var(--accent-ink)}
         b.addEventListener("click", function(){ wizard.tipo=b.dataset.tipo; render(); });
       });
       var fi = document.getElementById("fInstalacion");
-      if(fi) fi.addEventListener("change", function(){ wizard.instalacion=fi.value; });
+      // El botón «Continuar» se calcula al pintar el paso; elegir la instalación no
+      // vuelve a pintar, así que hay que actualizarlo aquí o se queda desactivado.
+      if(fi) fi.addEventListener("change", function(){
+        wizard.instalacion=fi.value;
+        if(nextBtn) nextBtn.disabled = !(wizard.lote && wizard.tipo && wizard.instalacion);
+      });
       var fc = document.getElementById("fCircuito");
       if(fc) fc.addEventListener("input", function(){ wizard.circuito=fc.value; });
 
