@@ -325,7 +325,7 @@ a{color:var(--accent-ink)}
 <div class="toast" id="toast"></div>
 <input type="file" accept="image/*" capture="environment" id="fileInput" style="display:none">
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="vendor/supabase-2.117.2.js"></script>
 <script src="config.js"></script>
 <script>
 (function(){
@@ -483,17 +483,182 @@ a{color:var(--accent-ink)}
   ];
   function np(){return null}
 
+  var SB = (window.supabase && window.HCD_CONFIG && window.HCD_CONFIG.supabaseUrl) ?
+    window.supabase.createClient(window.HCD_CONFIG.supabaseUrl, window.HCD_CONFIG.supabaseKey) : null;
+  var STORE_KEY = SB ? "trinijove_hcd_v2" : "trinijove_hcd_v1";
   var state = load();
   if(!state.tecnicos || !state.tecnicos.length) state.tecnicos = TECNICOS.slice();
   function load(){
     try{
-      var raw = localStorage.getItem("trinijove_hcd_v1");
+      var raw = localStorage.getItem(STORE_KEY);
       if(raw) return JSON.parse(raw);
     }catch(e){}
-    return {records: SEED, draft:null, tecnicos: TECNICOS.slice()};
+    // Sin conexión a Supabase (config.js vacío) se sigue mostrando la demo con datos de ejemplo.
+    return {records: SB ? [] : SEED, draft:null, tecnicos: TECNICOS.slice()};
   }
   function save(){
-    try{ localStorage.setItem("trinijove_hcd_v1", JSON.stringify(state)); }catch(e){}
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
+    scheduleSync();
+  }
+
+  /* ---------- sincronización con Supabase ---------- */
+  // El móvil guarda primero en localStorage y después sube a Supabase: así se puede
+  // trabajar sin cobertura. state.pending lista los registros aún no subidos; al subir
+  // uno, sus fotos (data: URLs) pasan a Storage y en el registro queda solo el enlace.
+  var syncing = false, syncTimer = null, syncError = "";
+  if(!state.pending) state.pending = [];
+
+  function markDirty(id){ if(state.pending.indexOf(id)<0) state.pending.push(id); }
+  function scheduleSync(){
+    if(!SB || !session) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(syncNow, 400);
+  }
+  function syncLabel(){
+    if(!SB) return "";
+    if(syncing) return "Sincronizando…";
+    if(state.pending.length) return state.pending.length+" registro(s) pendiente(s) de subir"+(navigator.onLine===false?" (sin conexión)":"");
+    if(syncError) return "No se pudo sincronizar: "+syncError;
+    return "Todo sincronizado";
+  }
+  function paintSync(){
+    var el = document.getElementById("syncState");
+    if(el) el.textContent = syncLabel();
+  }
+
+  function uploadPhoto(recId, key, value){
+    if(typeof value!=="string" || value.indexOf("data:")!==0) return Promise.resolve(value);
+    var path = session.user.id+"/"+recId+"/"+key+"-"+Math.random().toString(36).slice(2,10)+".jpg";
+    return fetch(value).then(function(r){ return r.blob(); }).then(function(blob){
+      return SB.storage.from("fotos").upload(path, blob, {contentType: blob.type || "image/jpeg", upsert:false});
+    }).then(function(res){
+      if(res.error) throw res.error;
+      return SB.storage.from("fotos").getPublicUrl(path).data.publicUrl;
+    });
+  }
+  function uploadRecordPhotos(rec){
+    var jobs = [];
+    ["photos","fotosMateriales"].forEach(function(field){
+      var obj = rec[field]; if(!obj) return;
+      Object.keys(obj).forEach(function(k){
+        jobs.push(uploadPhoto(rec.id, field+"-"+k, obj[k]).then(function(url){ obj[k] = url; }));
+      });
+    });
+    (rec.incidencias||[]).forEach(function(inc, i){
+      jobs.push(uploadPhoto(rec.id, "incidencia-"+i, inc.foto).then(function(url){ inc.foto = url; }));
+    });
+    return Promise.all(jobs);
+  }
+  function pushOne(id){
+    var rec = state.records.filter(function(r){ return r.id===id; })[0];
+    if(!rec) return Promise.resolve();
+    return uploadRecordPhotos(rec).then(function(){
+      try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
+      return SB.from("registros").upsert({id: rec.id, data: rec});
+    }).then(function(res){
+      if(res.error) throw res.error;
+      state.pending = state.pending.filter(function(x){ return x!==id; });
+    });
+  }
+  function pull(){
+    return SB.from("registros").select("id,data").order("creado", {ascending:false}).then(function(res){
+      if(res.error) throw res.error;
+      var server = res.data.map(function(row){ return row.data; });
+      var ids = {}; server.forEach(function(r){ ids[r.id]=true; });
+      // Lo que aún no se ha subido gana a la copia del servidor.
+      var local = state.records.filter(function(r){ return state.pending.indexOf(r.id)>-1; });
+      local.forEach(function(r){ ids[r.id]=false; });
+      state.records = local.concat(server.filter(function(r){ return ids[r.id]; }));
+    });
+  }
+  function syncNow(){
+    if(!SB || !session || syncing) return;
+    if(navigator.onLine===false){ paintSync(); return; }
+    syncing = true; paintSync();
+    var chain = Promise.resolve();
+    state.pending.slice().forEach(function(id){ chain = chain.then(function(){ return pushOne(id); }); });
+    chain.then(pull).then(function(){
+      syncError = "";
+    }).catch(function(e){
+      syncError = (e && e.message) || "error de conexión";
+    }).then(function(){
+      syncing = false;
+      try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
+      if(!wizard) render(); else paintSync();
+    });
+  }
+  window.addEventListener("online", syncNow);
+  setInterval(syncNow, 60000);
+
+  /* ---------- sesión ---------- */
+  var session = null, perfil = null, authReady = !SB, loginBusy = false, loginMsg = "";
+  function loadPerfil(){
+    return SB.from("perfiles").select("nombre,es_admin").eq("user_id", session.user.id).maybeSingle().then(function(res){
+      perfil = res.data || {nombre: session.user.email.split("@")[0], es_admin:false};
+      if(state.tecnicos.indexOf(perfil.nombre)<0) state.tecnicos.unshift(perfil.nombre);
+    });
+  }
+  function onSession(s){
+    var changed = (s && s.user.id) !== (session && session.user.id);
+    // Otro usuario en el mismo móvil: no se mezclan los registros guardados.
+    if(s && state.owner && state.owner!==s.user.id){
+      state = {records:[], pending:[], draft:null, tecnicos: TECNICOS.slice()};
+    }
+    session = s;
+    if(s) state.owner = s.user.id;
+    authReady = true;
+    if(!s){ perfil = null; render(); return; }
+    if(!changed) return;
+    loadPerfil().catch(function(){}).then(function(){ render(); syncNow(); });
+  }
+  if(SB){
+    SB.auth.getSession().then(function(r){ onSession(r.data.session); });
+    SB.auth.onAuthStateChange(function(_ev, s){ onSession(s); });
+  }
+
+  function renderLogin(){
+    setTop("Hoja de campo","Fundació Privada Trinijove · ARC-2027-6");
+    document.querySelector(".tabbar").style.display = "none";
+    if(!authReady){ main.innerHTML = '<div class="card">Cargando…</div>'; return; }
+    main.innerHTML =
+      '<div class="card field-row">'+
+        '<div class="section-label">Iniciar sesión</div>'+
+        '<label class="field">Correo electrónico<input id="loginEmail" type="email" autocomplete="username" inputmode="email"></label>'+
+        '<label class="field">Contraseña<input id="loginPass" type="password" autocomplete="current-password"></label>'+
+        '<button class="btn primary block" id="loginBtn"'+(loginBusy?' disabled':'')+'>'+(loginBusy?'Entrando…':'Entrar')+'</button>'+
+        (loginMsg? '<div style="font-size:12px;color:var(--danger)">'+esc(loginMsg)+'</div>' : '')+
+      '</div>'+
+      '<div class="banner"><div>Tu usuario lo crea el administrador de la app. Si no tienes uno, pídeselo.</div></div>';
+    document.getElementById("loginBtn").addEventListener("click", function(){
+      var email = document.getElementById("loginEmail").value.trim();
+      var pass = document.getElementById("loginPass").value;
+      if(!email || !pass){ loginMsg = "Escribe el correo y la contraseña."; renderLogin(); return; }
+      loginBusy = true; loginMsg = ""; renderLogin();
+      SB.auth.signInWithPassword({email: email, password: pass}).then(function(res){
+        loginBusy = false;
+        if(res.error){ loginMsg = "Correo o contraseña incorrectos."; renderLogin(); }
+      });
+    });
+  }
+  function sessionCard(){
+    if(!SB || !session) return "";
+    return '<div class="card">'+
+      '<div class="summary-row"><span>Sesión</span><span>'+esc(perfil? perfil.nombre : session.user.email)+(perfil && perfil.es_admin? ' · administrador' : '')+'</span></div>'+
+      '<div class="summary-row"><span>Datos</span><span id="syncState">'+esc(syncLabel())+'</span></div>'+
+      '<div style="display:flex;gap:8px;margin-top:10px">'+
+        '<button class="btn ghost small" id="syncBtn">Sincronizar ahora</button>'+
+        '<button class="btn ghost small" id="logoutBtn">Cerrar sesión</button>'+
+      '</div>'+
+    '</div>';
+  }
+  function attachSessionHandlers(){
+    var b = document.getElementById("syncBtn");
+    if(b) b.addEventListener("click", syncNow);
+    var l = document.getElementById("logoutBtn");
+    if(l) l.addEventListener("click", function(){
+      if(state.pending.length && !confirm("Hay registros sin subir. Si cierras sesión se quedarán en este móvil hasta que vuelvas a entrar. ¿Cerrar sesión?")) return;
+      SB.auth.signOut();
+    });
   }
 
   function toast(msg){
@@ -589,6 +754,8 @@ a{color:var(--accent-ink)}
   }
 
   function render(){
+    if(SB && !session) return renderLogin();
+    document.querySelector(".tabbar").style.display = "";
     if(current==="home") return renderHome();
     if(current==="list") return renderList();
     if(current==="new") return renderWizard();
@@ -615,25 +782,27 @@ a{color:var(--accent-ink)}
         '<div class="stat"><b>'+rev+'</b><span>En revisión</span></div>'+
       '</div>'+
 
-      '<div class="card">'+
+      // Las cifras de plazos son de ejemplo: solo se muestran en la demo sin conexión.
+      (SB? '' : '<div class="card">'+
         '<div class="section-label" style="margin-bottom:10px">Cumplimiento de plazos</div>'+
         deadlineRows()+
-      '</div>'+
+      '</div>')+
 
       '<div class="card">'+
         '<div class="section-label" style="margin-bottom:10px">Últimas caracterizaciones</div>'+
-        '<div class="list">'+ recent.map(rowCard).join("") +'</div>'+
+        (recent.length? '<div class="list">'+ recent.map(rowCard).join("") +'</div>' : '<div style="font-size:12.5px;color:var(--fg-muted)">Aún no hay caracterizaciones.</div>')+
       '</div>'+
 
-      '<div class="banner">'+
+      (SB? sessionCard() : '<div class="banner">'+
         '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>'+
         '<div>Demo de la mejora <b>«Hoja de campo digital con validación en el momento»</b> descrita en la memoria técnica (apdo. 5): peso, composición por fracciones, fotografías de evidencia e incidencias registradas en el momento de la caracterización, con generación automática del informe final.</div>'+
-      '</div>'+
+      '</div>')+
       (installHintText()? '<div class="banner"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg><div>'+installHintText()+'</div></div>' : '');
 
     var ctaNew = document.getElementById("ctaNew");
     if(ctaNew) ctaNew.addEventListener("click", startWizard);
     attachRowHandlers();
+    attachSessionHandlers();
   }
 
   function deadlineRows(){
@@ -1470,6 +1639,7 @@ a{color:var(--accent-ink)}
           incidencias: wizard.incidencias.slice()
         };
         state.records.unshift(rec);
+        markDirty(rec.id);
         save();
         toast("Registro guardado correctamente");
         goto("home");

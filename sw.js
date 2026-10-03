@@ -1,9 +1,9 @@
 // Service worker de la Hoja de Campo Digital (Trinijove).
 // Solo cachea el "app shell" (la propia página, que lleva el logo y los estilos
 // incrustados) para que la app abra sin conexión una vez instalada. Los datos
-// de las caracterizaciones ya viven en localStorage, no aquí.
-const CACHE = "trinijove-hcd-v1";
-const SHELL = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
+// de las caracterizaciones viven en localStorage y en Supabase, no aquí.
+const CACHE = "trinijove-hcd-v2";
+const SHELL = ["./", "./index.html", "./manifest.json", "./config.js", "./vendor/supabase-2.117.2.js", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", function(event){
   self.skipWaiting();
@@ -26,6 +26,8 @@ self.addEventListener("activate", function(event){
 
 self.addEventListener("fetch", function(event){
   if(event.request.method!=="GET") return;
+  // Solo la propia app: las llamadas a Supabase (datos, sesión, fotos) van siempre a la red.
+  if(new URL(event.request.url).origin !== self.location.origin) return;
   event.respondWith(
     caches.match(event.request).then(function(cached){
       var network = fetch(event.request).then(function(resp){
