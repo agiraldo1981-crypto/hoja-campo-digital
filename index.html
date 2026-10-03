@@ -590,6 +590,38 @@ a{color:var(--accent-ink)}
   window.addEventListener("online", syncNow);
   setInterval(syncNow, 60000);
 
+  // Borrado (solo administrador): primero en Supabase, después en el móvil. Requiere conexión.
+  function photoPaths(rec){
+    var urls = [];
+    ["photos","fotosMateriales"].forEach(function(f){ if(rec[f]) Object.keys(rec[f]).forEach(function(k){ urls.push(rec[f][k]); }); });
+    (rec.incidencias||[]).forEach(function(i){ urls.push(i.foto); });
+    var marker = "/object/public/fotos/";
+    return urls.filter(function(u){ return typeof u==="string" && u.indexOf(marker)>-1; })
+      .map(function(u){ return decodeURIComponent(u.split(marker)[1]); });
+  }
+  function deleteRecord(rec, btn){
+    if(!confirm("¿Eliminar este registro y sus fotos? No se puede deshacer.")) return;
+    var removeLocal = function(){
+      state.records = state.records.filter(function(r){ return r.id!==rec.id; });
+      state.pending = state.pending.filter(function(x){ return x!==rec.id; });
+      try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
+      toast("Registro eliminado");
+      goto(current==="new"?"home":current);
+    };
+    if(navigator.onLine===false){ toast("Necesitas conexión para eliminar"); return; }
+    btn.disabled = true; btn.textContent = "Eliminando…";
+    SB.from("registros").delete().eq("id", rec.id).select("id").then(function(res){
+      if(res.error) throw res.error;
+      // 0 filas: o no estaba subido todavía, o no hay permiso para borrarlo.
+      if(!res.data.length && state.pending.indexOf(rec.id)<0) throw new Error("sin permiso");
+      var paths = photoPaths(rec);
+      return paths.length ? SB.storage.from("fotos").remove(paths) : null;
+    }).then(removeLocal).catch(function(e){
+      btn.disabled = false; btn.textContent = "Eliminar registro";
+      toast("No se pudo eliminar: "+((e && e.message) || "error"));
+    });
+  }
+
   /* ---------- sesión ---------- */
   var session = null, perfil = null, authReady = !SB, loginBusy = false, loginMsg = "";
   function loadPerfil(){
@@ -891,7 +923,10 @@ a{color:var(--accent-ink)}
       '<button class="btn primary block" id="reportBtn">'+
         '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5h5"/><path d="M6 3h8l5 5v13H6z"/><path d="M9 13h6M9 17h6"/></svg>'+
         'Generar informe'+
-      '</button>';
+      '</button>'+
+      (SB && perfil && perfil.es_admin? '<button class="btn ghost block" id="deleteBtn" style="color:var(--danger)">Eliminar registro</button>' : '');
+    var deleteBtn = document.getElementById("deleteBtn");
+    if(deleteBtn) deleteBtn.addEventListener("click", function(){ deleteRecord(r, deleteBtn); });
     document.getElementById("backBtn").addEventListener("click", function(){ goto(current==="new"?"home":current) });
     document.getElementById("reportBtn").addEventListener("click", function(){ renderReport(r.id); });
   }

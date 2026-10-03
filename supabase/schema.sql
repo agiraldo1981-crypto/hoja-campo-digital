@@ -80,7 +80,10 @@ create policy "crear registros" on public.registros for insert to authenticated
 drop policy if exists "editar registros" on public.registros;
 create policy "editar registros" on public.registros for update to authenticated
   using (user_id = auth.uid() or public.es_admin());
--- Sin política de borrado: desde la app no se puede borrar nada.
+-- Solo el administrador puede borrar registros.
+drop policy if exists "borrar registros (admin)" on public.registros;
+create policy "borrar registros (admin)" on public.registros for delete to authenticated
+  using (public.es_admin());
 
 -- ---------- fotos ----------
 -- Bucket público con nombres aleatorios: la foto solo se ve teniendo su enlace exacto.
@@ -91,3 +94,7 @@ on conflict (id) do nothing;
 drop policy if exists "subir mis fotos" on storage.objects;
 create policy "subir mis fotos" on storage.objects for insert to authenticated
   with check (bucket_id = 'fotos' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "borrar fotos (admin)" on storage.objects;
+create policy "borrar fotos (admin)" on storage.objects for delete to authenticated
+  using (bucket_id = 'fotos' and public.es_admin());
