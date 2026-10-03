@@ -681,9 +681,54 @@ a{color:var(--accent-ink)}
         '<button class="btn ghost small" id="syncBtn">Sincronizar ahora</button>'+
         '<button class="btn ghost small" id="logoutBtn">Cerrar sesión</button>'+
       '</div>'+
+      (perfil && perfil.es_admin? '<button class="btn ghost block" id="backupBtn" style="margin-top:8px">Descargar copia (Excel)</button>' : '')+
     '</div>';
   }
+  // Copia de seguridad manual (administrador): lee todo lo que hay en Supabase, no solo
+  // lo que tiene este móvil, y lo baja en un Excel. Las fotos quedan como enlaces.
+  function loadXlsx(){
+    if(window.XLSX) return Promise.resolve();
+    return new Promise(function(ok, ko){
+      var sc = document.createElement("script");
+      sc.src = "vendor/xlsx-0.18.5.mini.min.js"; sc.onload = ok; sc.onerror = function(){ ko(new Error("sin conexión")); };
+      document.head.appendChild(sc);
+    });
+  }
+  function downloadBackup(btn){
+    btn.disabled = true; btn.textContent = "Preparando copia…";
+    var done = function(){ btn.disabled = false; btn.textContent = "Descargar copia (Excel)"; };
+    Promise.all([loadXlsx(), SB.from("registros").select("id,data,creado").order("creado")]).then(function(res){
+      var q = res[1]; if(q.error) throw q.error;
+      var regs = [], mats = [], incs = [], fotos = [];
+      var photoLabels = {bascula:"Tique de báscula", escalimetro:"Escalímetro", cartel:"Cartel del circuito"};
+      q.data.forEach(function(row){
+        var r = row.data, base = {"Registro": r.id, "Fecha": r.fecha, "Tipo": typeLabel(r.tipo)};
+        var nFotos = 0;
+        Object.keys(r.photos||{}).forEach(function(k){ if(r.photos[k]){ nFotos++; fotos.push(Object.assign({}, base, {"Foto": photoLabels[k]||k, "Enlace": r.photos[k]})); } });
+        Object.keys(r.fotosMateriales||{}).forEach(function(k){ if(r.fotosMateriales[k]){ nFotos++; fotos.push(Object.assign({}, base, {"Foto": materialLabel(r.tipo,k), "Enlace": r.fotosMateriales[k]})); } });
+        Object.keys(r.materials||{}).forEach(function(k){
+          var kg = parseFloat(r.materials[k]); if(!isNaN(kg)) mats.push(Object.assign({}, base, {"Material": materialLabel(r.tipo,k), "Kg": kg}));
+        });
+        (r.incidencias||[]).forEach(function(i){ incs.push(Object.assign({}, base, {"Incidencia": i.texto, "Foto": i.foto||""})); });
+        regs.push(Object.assign({}, base, {
+          "Lote": r.lote, "Instalación": r.instalacion, "Circuito": r.circuito, "Técnico/a": r.tecnico,
+          "Peso (kg)": r.peso, "Estado": ({completo:"Completo", incidencia:"Con incidencias", revision:"En revisión"})[r.estado] || r.estado, "Fotos": nFotos, "Incidencias": (r.incidencias||[]).length,
+          "Subido": row.creado ? row.creado.slice(0,16).replace("T"," ") : ""
+        }));
+      });
+      var wb = XLSX.utils.book_new();
+      [["Registros",regs],["Materiales",mats],["Incidencias",incs],["Fotos",fotos]].forEach(function(sh){
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sh[1].length? sh[1] : [{"(sin datos)":""}]), sh[0]);
+      });
+      XLSX.writeFile(wb, "hoja-de-campo-copia-"+new Date().toISOString().slice(0,10)+".xlsx");
+      toast("Copia descargada: "+regs.length+" registro(s)");
+    }).catch(function(e){
+      toast("No se pudo preparar la copia: "+((e && e.message) || "error"));
+    }).then(done);
+  }
   function attachSessionHandlers(){
+    var bk = document.getElementById("backupBtn");
+    if(bk) bk.addEventListener("click", function(){ downloadBackup(bk); });
     var b = document.getElementById("syncBtn");
     if(b) b.addEventListener("click", syncNow);
     var l = document.getElementById("logoutBtn");
