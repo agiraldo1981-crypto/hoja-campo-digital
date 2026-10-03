@@ -7,3 +7,4 @@ App web móvil (PWA) para las caracterizaciones de residuos de Fundació Privada
 - La app guarda primero en el móvil y sube a Supabase cuando hay conexión.
 - Usuarios: se crean en Supabase → Authentication → Users → Add user. El primero es el administrador y ve todos los registros; los demás solo ven los suyos.
 - Base de datos: `supabase/schema.sql`, que se ejecuta una vez en el SQL Editor de Supabase.
+- Todo el contexto del proyecto y lo que queda pendiente está en `TRASPASO.md`.
