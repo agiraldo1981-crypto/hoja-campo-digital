@@ -2286,8 +2286,20 @@ a{color:var(--accent-ink)}
   /* ---------- instalación como app (PWA) ---------- */
   if("serviceWorker" in navigator){
     window.addEventListener("load", function(){
-      navigator.serviceWorker.register("sw.js").catch(function(){ /* sin conexión al publicar: se ignora */ });
+      navigator.serviceWorker.register("sw.js").then(function(reg){
+        // Al volver a la app se mira si hay versión nueva, sin esperar a cerrarla.
+        document.addEventListener("visibilitychange", function(){ if(document.visibilityState==="visible") reg.update().catch(function(){}); });
+      }).catch(function(){ /* sin conexión al publicar: se ignora */ });
     });
+    // Cuando llega una versión nueva se recarga sola, salvo a mitad de una caracterización
+    // (se perdería lo escrito): en ese caso se recarga al salir del asistente.
+    var habiaVersion = !!navigator.serviceWorker.controller, recargaPendiente = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function(){
+      if(!habiaVersion){ habiaVersion = true; return; }
+      if(wizard){ recargaPendiente = true; return; }
+      location.reload();
+    });
+    setInterval(function(){ if(recargaPendiente && !wizard) location.reload(); }, 2000);
   }
   var deferredInstall = null;
   var installBtn = document.getElementById("installBtn");
