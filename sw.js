@@ -2,7 +2,7 @@
 // Solo cachea el "app shell" (la propia página, que lleva el logo y los estilos
 // incrustados) para que la app abra sin conexión una vez instalada. Los datos
 // de las caracterizaciones viven en localStorage y en Supabase, no aquí.
-const CACHE = "trinijove-hcd-v2";
+const CACHE = "trinijove-hcd-v3";
 const SHELL = ["./", "./index.html", "./manifest.json", "./config.js", "./vendor/supabase-2.117.2.js", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", function(event){
