@@ -1,6 +1,6 @@
 # Hoja de Campo Digital: documento de traspaso
 
-Estado a 3 de octubre de 2026. Sirve para que cualquier persona, u otra cuenta de Claude, retome el proyecto sin perder contexto.
+Estado a 4 de octubre de 2026. Sirve para que cualquier persona, u otra cuenta de Claude, retome el proyecto sin perder contexto.
 
 ## Qué es
 
@@ -13,6 +13,12 @@ Qué hace:
 - Funciona sin cobertura: guarda en el móvil y sincroniza con Supabase cuando hay conexión.
 - Solo el administrador puede eliminar registros, junto con sus fotos.
 - El administrador puede descargar una copia en Excel con todos los registros (hojas: Registros, Materiales, Incidencias, Fotos).
+- Los registros cerrados se pueden editar; queda anotado quién y cuándo hizo la última edición.
+- Las instalaciones y los técnicos son comunes para todos: el administrador los gestiona en Inicio → «Instalaciones y técnicos» (tabla `ajustes`).
+- Cada foto lleva sellada la fecha, la hora y la ubicación del momento en que se añade a la app.
+- Para cerrar un registro nuevo hace falta la ubicación; si el GPS falla se puede guardar sin ella, dejándolo claro.
+- Búsqueda y filtros (fechas, instalación, técnico, estado) en «Registros».
+- Informe en PDF con todas las fotos, generado en el propio móvil; funciona sin conexión con las fotos ya vistas en ese móvil.
 
 ## Dónde está cada cosa
 
@@ -30,9 +36,10 @@ Coste actual: 0 € (GitHub Pages gratis, Supabase plan Free).
 - `index.html`: toda la app (estilos, lógica, sincronización).
 - `config.js`: URL de Supabase y clave *publishable*, que es pública por diseño. **La clave secreta (`sb_secret_…`) no va nunca en el código ni se comparte.**
 - `sw.js`: service worker que permite abrir la app sin conexión.
-- `vendor/`: librerías incluidas (supabase-js 2.117.2 y SheetJS 0.18.5) para no depender de CDN.
+- `vendor/`: librerías incluidas (supabase-js 2.117.2, SheetJS 0.18.5 y jsPDF 4.2.1) para no depender de CDN.
 - `supabase/schema.sql`: tablas, seguridad y bucket de fotos. Ya ejecutado.
 - `supabase/02-borrar-registros.sql`: permiso de borrado para el administrador. Ya ejecutado; también está incluido en `schema.sql`.
+- `supabase/03-ajustes.sql`: tabla `ajustes` con las instalaciones y los técnicos comunes. También incluido en `schema.sql`.
 - `.github/workflows/mantener-supabase-activo.yml`: consulta Supabase lunes y jueves para que el plan gratuito no se pause.
 
 ## Cómo funciona por dentro

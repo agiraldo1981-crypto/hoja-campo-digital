@@ -494,6 +494,25 @@ a{color:var(--accent-ink)}
   var STORE_KEY = SB ? "trinijove_hcd_v2" : "trinijove_hcd_v1";
   var state = load();
   if(!state.tecnicos || !state.tecnicos.length) state.tecnicos = TECNICOS.slice();
+  // Instalaciones y técnicos: con Supabase los define el administrador para todos
+  // (tabla «ajustes»); mientras no los haya guardado nunca, se usan las listas de siempre.
+  function instalacionesDe(lote){
+    var c = state.catalogo;
+    return (c && c.instalaciones && c.instalaciones[lote]) || INSTALACIONES[lote] || [];
+  }
+  function tecnicosLista(){
+    var c = state.catalogo;
+    return (SB && c && c.tecnicos && c.tecnicos.length) ? c.tecnicos : state.tecnicos;
+  }
+  function loadCatalogo(){
+    if(!SB || !session) return Promise.resolve();
+    return SB.from("ajustes").select("clave,valor").then(function(res){
+      if(res.error) return; // tabla aún no creada: se siguen usando las listas locales
+      var c = {};
+      res.data.forEach(function(row){ c[row.clave] = row.valor; });
+      state.catalogo = c;
+    });
+  }
   function load(){
     try{
       var raw = localStorage.getItem(STORE_KEY);
@@ -535,11 +554,18 @@ a{color:var(--accent-ink)}
   function uploadPhoto(recId, key, value){
     if(typeof value!=="string" || value.indexOf("data:")!==0) return Promise.resolve(value);
     var path = session.user.id+"/"+recId+"/"+key+"-"+Math.random().toString(36).slice(2,10)+".jpg";
-    return fetch(value).then(function(r){ return r.blob(); }).then(function(blob){
+    var blob;
+    return fetch(value).then(function(r){ return r.blob(); }).then(function(b){
+      blob = b;
       return SB.storage.from("fotos").upload(path, blob, {contentType: blob.type || "image/jpeg", upsert:false});
     }).then(function(res){
       if(res.error) throw res.error;
-      return SB.storage.from("fotos").getPublicUrl(path).data.publicUrl;
+      var url = SB.storage.from("fotos").getPublicUrl(path).data.publicUrl;
+      // Copia en el móvil (la misma que usa sw.js) para seguir viéndola y sacar el PDF sin conexión.
+      if(window.caches) caches.open("trinijove-fotos-v1").then(function(c){
+        return c.put(url, new Response(blob, {headers:{"Content-Type": blob.type || "image/jpeg"}}));
+      }).catch(function(){});
+      return url;
     });
   }
   function uploadRecordPhotos(rec){
@@ -583,14 +609,17 @@ a{color:var(--accent-ink)}
     syncing = true; paintSync();
     var chain = Promise.resolve();
     state.pending.slice().forEach(function(id){ chain = chain.then(function(){ return pushOne(id); }); });
-    chain.then(pull).then(function(){
+    chain.then(pull).then(loadCatalogo).then(function(){
       syncError = "";
     }).catch(function(e){
       syncError = (e && e.message) || "error de conexión";
     }).then(function(){
       syncing = false;
       try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
-      if(!wizard) render(); else paintSync();
+      // No se repinta encima de lo que el técnico está mirando o escribiendo.
+      if(wizard || detalle || current==="ajustes") paintSync();
+      else if(current==="list" && document.getElementById("listResults")) paintList();
+      else render();
     });
   }
   window.addEventListener("online", syncNow);
@@ -647,7 +676,7 @@ a{color:var(--accent-ink)}
     authReady = true;
     if(!s){ perfil = null; render(); return; }
     if(!changed) return;
-    loadPerfil().catch(function(){}).then(function(){ render(); syncNow(); });
+    Promise.all([loadPerfil().catch(function(){}), loadCatalogo().catch(function(){})]).then(function(){ render(); syncNow(); });
   }
   if(SB){
     SB.auth.getSession().then(function(r){ onSession(r.data.session); });
@@ -687,7 +716,8 @@ a{color:var(--accent-ink)}
         '<button class="btn ghost small" id="syncBtn">Sincronizar ahora</button>'+
         '<button class="btn ghost small" id="logoutBtn">Cerrar sesión</button>'+
       '</div>'+
-      (perfil && perfil.es_admin? '<button class="btn ghost block" id="backupBtn" style="margin-top:8px">Descargar copia (Excel)</button>' : '')+
+      (perfil && perfil.es_admin? '<button class="btn ghost block" id="ajustesBtn" style="margin-top:8px">Instalaciones y técnicos</button>'+
+        '<button class="btn ghost block" id="backupBtn" style="margin-top:8px">Descargar copia (Excel)</button>' : '')+
     '</div>';
   }
   // Copia de seguridad manual (administrador): lee todo lo que hay en Supabase, no solo
@@ -733,6 +763,8 @@ a{color:var(--accent-ink)}
     }).then(done);
   }
   function attachSessionHandlers(){
+    var aj = document.getElementById("ajustesBtn");
+    if(aj) aj.addEventListener("click", function(){ goto("ajustes"); });
     var bk = document.getElementById("backupBtn");
     if(bk) bk.addEventListener("click", function(){ downloadBackup(bk); });
     var b = document.getElementById("syncBtn");
@@ -775,7 +807,7 @@ a{color:var(--accent-ink)}
   // punto compartido por todas las capturas, antes de guardarlas en el registro.
   var PHOTO_MAX_DIM = 1280;
   var PHOTO_QUALITY = 0.72;
-  function compressPhoto(dataUrl, onDone){
+  function compressPhoto(dataUrl, onDone, stamp){
     var img = new Image();
     img.onload = function(){
       var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
@@ -787,6 +819,18 @@ a{color:var(--accent-ink)}
         canvas.width = cw; canvas.height = ch;
         var ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, cw, ch);
+        if(stamp){
+          var fs = Math.max(13, Math.round(Math.min(cw, ch)*0.032)), pad = Math.round(fs*0.55);
+          ctx.font = "600 "+fs+"px -apple-system, Roboto, Arial, sans-serif";
+          var lines = [stamp, "Trinijove · ARC-2027-6"];
+          var bh = lines.length*fs*1.3 + pad*2;
+          ctx.fillStyle = "rgba(0,0,0,.55)";
+          ctx.fillRect(0, ch-bh, cw, bh);
+          ctx.fillStyle = "#fff"; ctx.textBaseline = "top";
+          lines.forEach(function(t, i){ ctx.fillText(t, pad, ch-bh+pad+i*fs*1.3, cw-pad*2); });
+          onDone(canvas.toDataURL("image/jpeg", PHOTO_QUALITY));
+          return;
+        }
         var out = canvas.toDataURL("image/jpeg", PHOTO_QUALITY);
         onDone(out && out.length < dataUrl.length ? out : dataUrl);
       }catch(e){ onDone(dataUrl); }
@@ -797,8 +841,40 @@ a{color:var(--accent-ink)}
   function readAsPhoto(file, onDone){
     if(!file) return;
     var reader = new FileReader();
-    reader.onload = function(){ compressPhoto(reader.result, onDone); };
+    reader.onload = function(){
+      // Sello con fecha, hora y ubicación del momento en que la foto se añade a la app.
+      quickGeo(function(g){
+        if(g && wizard && !wizard.geo && !wizard.editId){ wizard.geo = g.txt; wizard.geoPrecision = g.acc; }
+        compressPhoto(reader.result, onDone, stampText(g));
+      });
+    };
     reader.readAsDataURL(file);
+  }
+
+  /* ---------- ubicación ---------- */
+  var lastGeo = null; // {txt, acc, t}
+  function captureGeo(cb, opts){
+    if(!navigator.geolocation){ cb(null, "Este móvil no permite obtener la ubicación."); return; }
+    navigator.geolocation.getCurrentPosition(function(pos){
+      lastGeo = {txt: pos.coords.latitude.toFixed(5)+", "+pos.coords.longitude.toFixed(5), acc: Math.round(pos.coords.accuracy), t: Date.now()};
+      cb(lastGeo);
+    }, function(err){
+      // Nunca se inventan coordenadas: si no hay ubicación, el registro queda sin ella.
+      cb(null, (err && err.code===1) ? "Permiso de ubicación denegado. Actívalo en los ajustes del navegador." : "No se pudo obtener la ubicación. Sal al exterior y vuelve a intentarlo.");
+    }, opts || {enableHighAccuracy:true, timeout:15000, maximumAge:60000});
+  }
+  function prefetchGeo(){ captureGeo(function(){}, {enableHighAccuracy:true, timeout:20000, maximumAge:120000}); }
+  // Para el sello de las fotos: no se hace esperar al técnico más de unos segundos.
+  function quickGeo(cb){
+    if(lastGeo && Date.now()-lastGeo.t < 5*60000){ cb(lastGeo); return; }
+    var done = false;
+    var timer = setTimeout(function(){ if(!done){ done = true; cb(null); } }, 6000);
+    captureGeo(function(g){ if(done) return; done = true; clearTimeout(timer); cb(g); }, {enableHighAccuracy:true, timeout:6000, maximumAge:300000});
+  }
+  function stampText(g){
+    var d = new Date(), p2 = function(n){ return String(n).padStart(2,"0"); };
+    var when = p2(d.getDate())+"/"+p2(d.getMonth()+1)+"/"+d.getFullYear()+" "+p2(d.getHours())+":"+p2(d.getMinutes());
+    return when+"  ·  "+(g? g.txt+" (±"+g.acc+" m)" : "sin ubicación");
   }
   function pickPhoto(onDone){
     var fileInput = document.getElementById("fileInput");
@@ -816,6 +892,7 @@ a{color:var(--accent-ink)}
   var tabs = document.querySelectorAll(".tab-btn");
   var current = "home";
   var wizard = null;
+  var detalle = null; // id del registro abierto (ficha o informe)
 
   tabs.forEach(function(btn){
     btn.addEventListener("click", function(){
@@ -827,6 +904,8 @@ a{color:var(--accent-ink)}
   function goto(tab){
     current = tab;
     wizard = null;
+    detalle = null;
+    if(tab!=="ajustes") ajustes = null;
     tabs.forEach(function(b){ b.classList.toggle("active", b.dataset.tab===tab); });
     render();
   }
@@ -842,6 +921,79 @@ a{color:var(--accent-ink)}
     if(current==="home") return renderHome();
     if(current==="list") return renderList();
     if(current==="new") return renderWizard();
+    if(current==="ajustes") return renderAjustes();
+  }
+
+  /* ---------- AJUSTES (administrador): instalaciones y técnicos para todos ---------- */
+  var ajustes = null;
+  function renderAjustes(){
+    setTop("Instalaciones y técnicos","Listas comunes para todos los técnicos");
+    if(!ajustes) ajustes = {
+      instalaciones: {1: instalacionesDe(1).slice(), 2: instalacionesDe(2).slice()},
+      tecnicos: tecnicosLista().slice(),
+      nuevo: {}
+    };
+    function bloque(clave, titulo, items){
+      return '<div class="card field-row">'+
+        '<div class="section-label">'+titulo+' ('+items.length+')</div>'+
+        '<div style="display:flex;flex-direction:column;gap:8px">'+items.map(function(t, i){
+          return '<div class="inc-item" style="align-items:center; padding:8px 10px">'+
+            '<div class="itext">'+esc(t)+'</div>'+
+            '<button type="button" class="idel" data-ajdel="'+clave+'" data-i="'+i+'">Quitar</button>'+
+          '</div>';
+        }).join("")+'</div>'+
+        '<div style="display:flex; gap:8px">'+
+          '<input data-ajin="'+clave+'" type="text" placeholder="Añadir…" value="'+esc(ajustes.nuevo[clave]||"")+'" style="flex:1; min-width:0; font-family:inherit; font-size:13px; padding:9px 10px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--fg)">'+
+          '<button type="button" class="btn primary small" data-ajadd="'+clave+'">Añadir</button>'+
+        '</div>'+
+      '</div>';
+    }
+    function lista(clave){ return clave==="tecnicos" ? ajustes.tecnicos : ajustes.instalaciones[clave.slice(-1)]; }
+    main.innerHTML =
+      '<button class="btn ghost small" id="backBtn" style="align-self:flex-start">&larr; Volver</button>'+
+      '<div class="banner"><div>Lo que guardes aquí aparece en el móvil de todos los técnicos al sincronizar. Quitar una instalación o un técnico no cambia los registros ya hechos.</div></div>'+
+      bloque("inst1", "Instalaciones del lote 1", ajustes.instalaciones[1])+
+      bloque("inst2", "Instalaciones del lote 2", ajustes.instalaciones[2])+
+      bloque("tecnicos", "Técnicos", ajustes.tecnicos)+
+      '<button class="btn primary block" id="ajSave">Guardar para todos</button>';
+    document.getElementById("backBtn").addEventListener("click", function(){ ajustes = null; goto("home"); });
+    main.querySelectorAll("[data-ajin]").forEach(function(inp){
+      inp.addEventListener("input", function(){ ajustes.nuevo[inp.dataset.ajin] = inp.value; });
+    });
+    main.querySelectorAll("[data-ajadd]").forEach(function(b){
+      b.addEventListener("click", function(){
+        var clave = b.dataset.ajadd, v = (ajustes.nuevo[clave]||"").trim(), l = lista(clave);
+        if(!v){ toast("Escribe un nombre"); return; }
+        if(l.indexOf(v)>-1){ toast("Ya está en la lista"); return; }
+        l.push(v); ajustes.nuevo[clave] = ""; renderAjustes();
+      });
+    });
+    main.querySelectorAll("[data-ajdel]").forEach(function(b){
+      b.addEventListener("click", function(){
+        var l = lista(b.dataset.ajdel);
+        if(l.length<=1){ toast("Debe quedar al menos uno"); return; }
+        l.splice(parseInt(b.dataset.i,10), 1); renderAjustes();
+      });
+    });
+    document.getElementById("ajSave").addEventListener("click", function(){
+      var btn = this;
+      if(navigator.onLine===false){ toast("Necesitas conexión para guardar"); return; }
+      btn.disabled = true; btn.textContent = "Guardando…";
+      var valor = {instalaciones: ajustes.instalaciones, tecnicos: ajustes.tecnicos};
+      SB.from("ajustes").upsert([
+        {clave:"instalaciones", valor: valor.instalaciones},
+        {clave:"tecnicos", valor: valor.tecnicos}
+      ]).then(function(res){
+        if(res.error) throw res.error;
+        state.catalogo = {instalaciones: valor.instalaciones, tecnicos: valor.tecnicos};
+        try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
+        ajustes = null; toast("Guardado para todos"); goto("home");
+      }).catch(function(e){
+        btn.disabled = false; btn.textContent = "Guardar para todos";
+        var m = (e && e.message) || "error";
+        toast("No se pudo guardar: "+(/ajustes/.test(m) ? "falta crear la tabla «ajustes» en Supabase" : m));
+      });
+    });
   }
 
   /* ---------- HOME ---------- */
@@ -919,22 +1071,77 @@ a{color:var(--accent-ink)}
   }
 
   /* ---------- LIST ---------- */
+  // Filtros de la lista: viven solo mientras la app está abierta.
+  var filtro = {q:"", desde:"", hasta:"", instalacion:"", tecnico:"", estado:""};
   function renderList(){
     setTop("Registros","Todas las caracterizaciones capturadas");
-    var recs = state.records.slice().sort(function(a,b){return b.fecha<a.fecha?-1:1});
-    if(!recs.length){
+    if(!state.records.length){
       main.innerHTML = emptyState("No hay registros todavía","Pulsa «Nueva» para capturar la primera caracterización.");
       return;
     }
+    function opciones(campo, sel){
+      var vals = {};
+      state.records.forEach(function(r){ if(r[campo] && r[campo]!=="—") vals[r[campo]] = true; });
+      return Object.keys(vals).sort().map(function(v){ return '<option'+(v===sel?' selected':'')+'>'+esc(v)+'</option>'; }).join("");
+    }
+    var inp = 'font-family:inherit; font-size:13px; padding:9px 10px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--fg); width:100%; min-width:0';
+    var activos = ["desde","hasta","instalacion","tecnico","estado"].filter(function(k){ return filtro[k]; }).length;
+    main.innerHTML =
+      '<div class="card field-row" style="gap:8px">'+
+        '<input id="fq" type="search" placeholder="Buscar circuito, instalación, técnico, tipo…" value="'+esc(filtro.q)+'" style="'+inp+'">'+
+        '<details id="fMas"'+(activos||filtro.abierto?' open':'')+'><summary style="font-size:12.5px; font-weight:700; cursor:pointer; padding:4px 0">Filtros'+(activos? ' ('+activos+')' : '')+'</summary>'+
+          '<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px">'+
+            '<label class="field" style="font-size:11.5px">Desde<input id="fdesde" type="date" value="'+esc(filtro.desde)+'" style="'+inp+'"></label>'+
+            '<label class="field" style="font-size:11.5px">Hasta<input id="fhasta" type="date" value="'+esc(filtro.hasta)+'" style="'+inp+'"></label>'+
+          '</div>'+
+          '<label class="field" style="font-size:11.5px; margin-top:8px">Instalación<select id="finst" style="'+inp+'"><option value="">Todas</option>'+opciones("instalacion", filtro.instalacion)+'</select></label>'+
+          '<label class="field" style="font-size:11.5px; margin-top:8px">Técnico/a<select id="ftec" style="'+inp+'"><option value="">Todos</option>'+opciones("tecnico", filtro.tecnico)+'</select></label>'+
+          '<label class="field" style="font-size:11.5px; margin-top:8px">Estado<select id="festado" style="'+inp+'"><option value="">Todos</option>'+
+            [["completo","Completo"],["incidencia","Con incidencias"],["revision","En revisión"]].map(function(o){ return '<option value="'+o[0]+'"'+(filtro.estado===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join("")+
+          '</select></label>'+
+          (activos? '<button type="button" class="btn ghost small" id="fLimpiar" style="margin-top:8px">Quitar filtros</button>' : '')+
+        '</details>'+
+      '</div>'+
+      '<div id="listResults" style="display:flex; flex-direction:column; gap:12px"></div>';
+    paintList();
+    var fq = document.getElementById("fq");
+    fq.addEventListener("input", function(){ filtro.q = fq.value; paintList(); });
+    document.getElementById("fMas").addEventListener("toggle", function(){ filtro.abierto = this.open; });
+    [["fdesde","desde"],["fhasta","hasta"],["finst","instalacion"],["ftec","tecnico"],["festado","estado"]].forEach(function(p){
+      document.getElementById(p[0]).addEventListener("change", function(){ filtro[p[1]] = this.value; renderList(); });
+    });
+    var fl = document.getElementById("fLimpiar");
+    if(fl) fl.addEventListener("click", function(){ filtro = {q:filtro.q, desde:"", hasta:"", instalacion:"", tecnico:"", estado:"", abierto:true}; renderList(); });
+  }
+  function paintList(){
+    var q = filtro.q.trim().toLowerCase();
+    var recs = state.records.filter(function(r){
+      if(filtro.desde && r.fecha < filtro.desde) return false;
+      if(filtro.hasta && r.fecha > filtro.hasta) return false;
+      if(filtro.instalacion && r.instalacion!==filtro.instalacion) return false;
+      if(filtro.tecnico && r.tecnico!==filtro.tecnico) return false;
+      if(filtro.estado && r.estado!==filtro.estado) return false;
+      if(q){
+        var txt = [r.circuito, r.instalacion, r.tecnico, typeLabel(r.tipo), "lote "+r.lote, r.obs||""].join(" ").toLowerCase();
+        if(txt.indexOf(q)<0) return false;
+      }
+      return true;
+    }).sort(function(a,b){return b.fecha<a.fecha?-1:1});
+    var box = document.getElementById("listResults");
+    if(!recs.length){ box.innerHTML = '<div style="font-size:12.5px;color:var(--fg-muted);text-align:center;padding:16px">Ningún registro coincide con la búsqueda.</div>'; return; }
     var groups = {};
     recs.forEach(function(r){ (groups[r.fecha]=groups[r.fecha]||[]).push(r); });
-    var html = "";
+    var html = '<div style="font-size:11.5px;color:var(--fg-muted);margin:0 2px">'+recs.length+' de '+state.records.length+' registros</div>';
     Object.keys(groups).sort().reverse().forEach(function(day){
       html += '<div class="section-label" style="margin:2px 2px -4px">'+ formatDay(day) +'</div>';
       html += '<div class="list">'+ groups[day].map(rowCard).join("") +'</div>';
     });
-    main.innerHTML = html;
+    box.innerHTML = html;
     attachRowHandlers();
+  }
+  function fechaHora(iso){
+    var d = new Date(iso); if(isNaN(d)) return iso;
+    return d.toLocaleDateString("es-ES")+" "+d.toLocaleTimeString("es-ES",{hour:"2-digit", minute:"2-digit"});
   }
   function formatDay(d){
     var dt = new Date(d+"T00:00:00");
@@ -950,6 +1157,7 @@ a{color:var(--accent-ink)}
   function openRecord(id){
     var r = state.records.filter(function(x){return x.id===id})[0];
     if(!r) return;
+    detalle = id; wizard = null;
     setTop(typeLabel(r.tipo), r.circuito+" · Lote "+r.lote);
     var pillClass = r.estado==="completo"?"ok":(r.estado==="incidencia"?"warn":"pending");
     var pillLabel = r.estado==="completo"?"Completo":(r.estado==="incidencia"?"Con incidencias":"En revisión interna");
@@ -963,6 +1171,8 @@ a{color:var(--accent-ink)}
         '<div class="summary-row"><span>Fecha</span><span>'+r.fecha+'</span></div>'+
         (r.peso? '<div class="summary-row"><span>Peso de muestra</span><span>'+r.peso+' kg</span></div>' : '') +
         '<div class="summary-row"><span>Geolocalización</span><span>'+(r.geo? '<a href="https://maps.google.com/?q='+encodeURIComponent(r.geo)+'" target="_blank" rel="noopener">'+esc(r.geo)+'</a>' : 'No capturada')+'</span></div>'+
+        (r.obs? '<div class="summary-row"><span>Observaciones</span><span style="font-weight:400">'+esc(r.obs)+'</span></div>' : '')+
+        (r.editado? '<div class="summary-row"><span>Última edición</span><span>'+esc(fechaHora(r.editado))+(r.editadoPor? ' · '+esc(r.editadoPor) : '')+'</span></div>' : '')+
       '</div>'+
       materialsCard(r)+
       photosCard(r)+
@@ -975,9 +1185,11 @@ a{color:var(--accent-ink)}
         '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5h5"/><path d="M6 3h8l5 5v13H6z"/><path d="M9 13h6M9 17h6"/></svg>'+
         'Generar informe'+
       '</button>'+
+      '<button class="btn ghost block" id="editBtn">Editar registro</button>'+
       (SB && perfil && perfil.es_admin? '<button class="btn ghost block" id="deleteBtn" style="color:var(--danger)">Eliminar registro</button>' : '');
     var deleteBtn = document.getElementById("deleteBtn");
     if(deleteBtn) deleteBtn.addEventListener("click", function(){ deleteRecord(r, deleteBtn); });
+    document.getElementById("editBtn").addEventListener("click", function(){ editRecord(r); });
     document.getElementById("backBtn").addEventListener("click", function(){ goto(current==="new"?"home":current) });
     document.getElementById("reportBtn").addEventListener("click", function(){ renderReport(r.id); });
   }
@@ -1057,7 +1269,6 @@ a{color:var(--accent-ink)}
       '</div>';
     }).join("") : '<div style="font-size:12.5px;color:var(--fg-muted)">Sin incidencias registradas.</div>';
 
-    var reportTitle = "Informe " + typeLabel(r.tipo) + " · Lote " + r.lote + " · " + r.fecha;
     var reportCards =
       '<div class="card">'+
         '<div class="section-label" style="margin-bottom:2px">Informe de caracterización</div>'+
@@ -1088,7 +1299,7 @@ a{color:var(--accent-ink)}
           '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5h5"/><path d="M6 3h8l5 5v13H6z"/><path d="M9 13h6M9 17h6"/></svg>'+
           'Descargar informe (PDF)'+
         '</button>'+
-        '<div style="font-size:11.5px; color:var(--fg-muted); text-align:center">Se descarga como página web; al abrirla aparece automáticamente el diálogo de impresión para guardarla como PDF.</div>'+
+        '<div style="font-size:11.5px; color:var(--fg-muted); text-align:center">PDF con todas las fotos. Funciona sin conexión con las fotos ya vistas en este móvil.</div>'+
       '</div>'+
       reportCards;
 
@@ -1104,37 +1315,209 @@ a{color:var(--accent-ink)}
         if(settled) return; settled = true;
         pdfBtn.disabled = false;
         toast("No se pudo generar el informe (tardó demasiado). Inténtalo de nuevo.");
-      }, 12000);
+      }, 45000);
       function finish(fn){ if(settled) return; settled = true; clearTimeout(watchdog); fn(); }
-      try{
-        var filenameBase = "informe_"+r.tipo+"_lote"+r.lote+"_"+r.fecha;
-        var html = standaloneReportHTML(reportTitle, reportCards);
-        downloadFile(filenameBase+".html", html, function(res){
+      buildPdf(r).then(function(blob){
+        var filename = "informe_"+r.tipo+"_lote"+r.lote+"_"+(r.circuito||"").replace(/[^A-Za-z0-9-]/g,"")+"_"+r.fecha+".pdf";
+        downloadFile(filename, blob, function(res){
           finish(function(){
             pdfBtn.disabled = false;
-            if(res.ok){ toast("Informe descargado — ábrelo para guardarlo como PDF"); return; }
+            if(res.ok){ toast(blob.faltan? "Informe descargado ("+blob.faltan+" foto(s) no disponibles sin conexión)" : "Informe descargado"); return; }
             if(res.reason==="declined") return;
-            toast("No se pudo descargar el informe (motivo: "+(res.reason||"desconocido")+"). Abre el enlace del artefacto directamente en el navegador.");
+            toast("No se pudo descargar el informe ("+(res.reason||"error")+").");
           });
         });
-      }catch(e){
+      }).catch(function(e){
         finish(function(){
           pdfBtn.disabled = false;
           toast("No se pudo generar el informe: "+(e && e.message ? e.message : "error desconocido"));
         });
+      });
+    });
+  }
+
+  /* ---------- informe en PDF (jsPDF, incluido en vendor/ para que funcione sin conexión) ---------- */
+  function loadJsPdf(){
+    if(window.jspdf) return Promise.resolve();
+    return new Promise(function(ok, ko){
+      var sc = document.createElement("script");
+      sc.src = "vendor/jspdf-4.2.1.umd.min.js"; sc.onload = ok; sc.onerror = function(){ ko(new Error("no se pudo cargar el generador de PDF")); };
+      document.head.appendChild(sc);
+    });
+  }
+  // Devuelve {data, w, h} o null si la foto no se puede leer (p. ej. sin conexión y sin copia en el móvil).
+  function loadImg(src){
+    if(!src) return Promise.resolve(null);
+    var getData = src.indexOf("data:")===0 ? Promise.resolve(src) :
+      fetch(src, {mode:"cors"}).then(function(r){ if(!r.ok) throw new Error(); return r.blob(); }).then(function(blob){
+        return new Promise(function(ok){ var fr = new FileReader(); fr.onload = function(){ ok(fr.result); }; fr.readAsDataURL(blob); });
+      });
+    return getData.then(function(data){
+      return new Promise(function(ok){
+        var im = new Image();
+        im.onload = function(){ ok({data:data, w:im.naturalWidth, h:im.naturalHeight}); };
+        im.onerror = function(){ ok(null); };
+        im.src = data;
+      });
+    }).catch(function(){ return null; });
+  }
+  // Las fuentes estándar del PDF no tienen algunos signos tipográficos.
+  function pdfTxt(t){ return String(t==null?"":t).replace(/[—–]/g,"-").replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/…/g,"..."); }
+  function buildPdf(r){
+    var shots = [
+      {key:"bascula", label:"Tique de báscula"},
+      {key:"escalimetro", label:"Escalímetro 50 cm"},
+      {key:"cartel", label:"Cartel del circuito"}
+    ].filter(function(x){ return r.photos && r.photos[x.key]; }).map(function(x){ return {src:r.photos[x.key], label:x.label}; });
+    Object.keys(r.fotosMateriales||{}).forEach(function(k){
+      if(r.fotosMateriales[k]) shots.push({src:r.fotosMateriales[k], label:materialLabel(r.tipo,k)});
+    });
+    var incs = r.incidencias || [];
+    return loadJsPdf().then(function(){
+      return Promise.all([Promise.all(shots.map(function(x){ return loadImg(x.src); })), Promise.all(incs.map(function(i){ return loadImg(i.foto); }))]);
+    }).then(function(imgs){
+      var shotImgs = imgs[0], incImgs = imgs[1];
+      var doc = new window.jspdf.jsPDF({unit:"mm", format:"a4"});
+      var W = 210, M = 15, y = M, faltan = 0;
+      var ink = [26,26,26], muted = [91,95,82], line = [223,227,210], lime = [201,212,1];
+      function need(h){ if(y+h > 297-M-8){ doc.addPage(); y = M; } }
+      function label(t){ need(10); doc.setFont("helvetica","bold"); doc.setFontSize(8.5); doc.setTextColor.apply(doc, muted); doc.text(pdfTxt(t).toUpperCase(), M, y+4); y += 8; }
+      function row(k, v){
+        doc.setFontSize(10); doc.setFont("helvetica","bold");
+        var lines = doc.splitTextToSize(pdfTxt(v), 110);
+        var h = Math.max(7, lines.length*4.6+2.4);
+        need(h);
+        doc.setFont("helvetica","normal"); doc.setTextColor.apply(doc, muted); doc.text(pdfTxt(k), M, y+4.8);
+        doc.setFont("helvetica","bold"); doc.setTextColor.apply(doc, ink); doc.text(lines, W-M, y+4.8, {align:"right"});
+        doc.setDrawColor.apply(doc, line); doc.line(M, y+h, W-M, y+h);
+        y += h;
       }
+      // Cabecera
+      doc.setFillColor(28,31,20); doc.rect(0, 0, W, 30, "F");
+      doc.setFillColor.apply(doc, lime); doc.triangle(M, 8, M, 22, M+12, 15, "F");
+      doc.setTextColor(255,255,255); doc.setFont("helvetica","bold"); doc.setFontSize(15);
+      doc.text("Informe de caracterización", M+18, 14);
+      doc.setFont("helvetica","normal"); doc.setFontSize(9.5);
+      doc.text("Fundació Privada Trinijove · Expediente ARC-2027-6", M+18, 20.5);
+      y = 38;
+      doc.setTextColor.apply(doc, ink); doc.setFont("helvetica","bold"); doc.setFontSize(13);
+      doc.text(pdfTxt(typeLabel(r.tipo)+" · Lote "+r.lote+" · "+r.circuito), M, y); y += 5;
+      label("Datos");
+      row("Circuito", r.circuito); row("Instalación", r.instalacion); row("Técnico/a", r.tecnico); row("Fecha", r.fecha);
+      if(r.peso) row("Peso de muestra", r.peso+" kg");
+      row("Ubicación", r.geo? r.geo+(r.geoPrecision? " (±"+r.geoPrecision+" m)" : "") : "No capturada");
+      row("Estado", r.estado==="completo"?"Completo":(r.estado==="incidencia"?"Con incidencias":"En revisión"));
+      if(r.obs) row("Observaciones", r.obs);
+      if(r.editado) row("Última edición", fechaHora(r.editado)+(r.editadoPor? " · "+r.editadoPor : ""));
+      y += 6;
+      // Materiales
+      var mats = r.materials || {};
+      var entries = Object.keys(mats).filter(function(k){ return parseFloat(mats[k])>0; })
+        .map(function(k){ return {label: materialLabel(r.tipo,k), kg: parseFloat(mats[k])}; })
+        .sort(function(a,b){ return b.kg-a.kg; });
+      var total = entries.reduce(function(s2,e){ return s2+e.kg; },0);
+      label("Composición de materiales"+(total? " ("+round1(total)+" kg)" : ""));
+      if(!entries.length){ doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor.apply(doc, muted); doc.text("Sin desglose de materiales registrado.", M, y+4); y += 8; }
+      entries.forEach(function(e){
+        need(8);
+        var pct = total? e.kg/total*100 : 0;
+        doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.setTextColor.apply(doc, ink);
+        doc.text(doc.splitTextToSize(pdfTxt(e.label), 88)[0], M, y+4.5);
+        doc.setFillColor(238,241,224); doc.rect(M+92, y+1.6, 50, 3.6, "F");
+        doc.setFillColor(140,150,0); doc.rect(M+92, y+1.6, Math.max(0.5, 50*pct/100), 3.6, "F");
+        doc.setFont("helvetica","bold"); doc.text(round1(e.kg)+" kg · "+round1(pct)+"%", W-M, y+4.5, {align:"right"});
+        y += 7;
+      });
+      y += 6;
+      // Fotos: dos por fila
+      if(shots.length){
+        label("Evidencias fotográficas ("+shots.length+")");
+        var cw = (W-2*M-6)/2, chMax = 62;
+        for(var i=0; i<shots.length; i+=2){
+          var pair = [0,1].map(function(j){ return shots[i+j] ? {s:shots[i+j], im:shotImgs[i+j]} : null; }).filter(Boolean);
+          var hs = pair.map(function(p){ return p.im ? Math.min(chMax, cw*p.im.h/p.im.w) : 20; });
+          var hRow = Math.max.apply(null, hs) + 9;
+          need(hRow);
+          pair.forEach(function(p, j){
+            var x = M + j*(cw+6);
+            if(p.im){
+              var h = hs[j], w = Math.min(cw, h*p.im.w/p.im.h);
+              doc.addImage(p.im.data, p.im.data.indexOf("image/png")>-1?"PNG":"JPEG", x, y, w, h, undefined, "FAST");
+            } else {
+              faltan++;
+              doc.setDrawColor.apply(doc, line); doc.rect(x, y, cw, 20);
+              doc.setFont("helvetica","normal"); doc.setFontSize(8.5); doc.setTextColor.apply(doc, muted);
+              doc.text("Foto no disponible sin conexión", x+cw/2, y+11, {align:"center"});
+            }
+            doc.setFont("helvetica","normal"); doc.setFontSize(8.5); doc.setTextColor.apply(doc, muted);
+            doc.text(doc.splitTextToSize(pdfTxt(p.s.label), cw)[0], x, y+hs[j]+4.5);
+          });
+          y += hRow + 2;
+        }
+        y += 4;
+      }
+      // Incidencias
+      label("Incidencias ("+incs.length+")");
+      if(!incs.length){ doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor.apply(doc, muted); doc.text("Sin incidencias registradas.", M, y+4); y += 8; }
+      incs.forEach(function(inc, k){
+        var im = incImgs[k];
+        if(inc.foto && !im) faltan++;
+        var tw = im ? W-2*M-46 : W-2*M;
+        doc.setFont("helvetica","normal"); doc.setFontSize(10);
+        var lines = doc.splitTextToSize(pdfTxt(inc.texto), tw);
+        var ih = im ? Math.min(40, 40*im.h/im.w) : 0;
+        var h = Math.max(lines.length*4.8, ih) + 4;
+        need(h);
+        if(im) doc.addImage(im.data, "JPEG", M, y, 40, ih, undefined, "FAST");
+        doc.setTextColor.apply(doc, ink); doc.text(lines, im ? M+46 : M, y+4);
+        y += h + 2;
+      });
+      // Pie en todas las páginas
+      var n = doc.getNumberOfPages(), gen = fechaHora(new Date().toISOString());
+      for(var pg=1; pg<=n; pg++){
+        doc.setPage(pg); doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor.apply(doc, muted);
+        doc.text(pdfTxt("Hoja de campo digital · Fundació Privada Trinijove · generado el "+gen), M, 297-8);
+        doc.text("Página "+pg+" de "+n, W-M, 297-8, {align:"right"});
+      }
+      var blob = doc.output("blob");
+      blob.faltan = faltan;
+      return blob;
     });
   }
 
   /* ---------- WIZARD (nueva caracterización) ---------- */
+  function tecnicoPorDefecto(){
+    var l = tecnicosLista();
+    return (perfil && l.indexOf(perfil.nombre)>-1) ? perfil.nombre : l[0];
+  }
   function startWizard(){
     wizard = {
       step:1,
-      lote:null, tipo:null, instalacion:null, circuito:"", tecnico:state.tecnicos[0],
-      peso:"", materials:{}, materialsOpen:{}, photos:{bascula:null, escalimetro:null, cartel:null},
+      lote:null, tipo:null, instalacion:null, circuito:"", tecnico:tecnicoPorDefecto(),
+      peso:"", obs:"", materials:{}, materialsOpen:{}, photos:{bascula:null, escalimetro:null, cartel:null},
       fotosMateriales:{}, incidencias:[], incNueva:null,
       tecManage:false, tecNuevo:"",
       geo:null
+    };
+    current="new";
+    tabs.forEach(function(b){ b.classList.toggle("active", b.dataset.tab==="new"); });
+    prefetchGeo();
+    render();
+  }
+  // Editar un registro ya cerrado: se carga en el mismo asistente y, al guardar, se
+  // sustituye el registro (mismo id, fecha y hora de cierre) y se vuelve a sincronizar.
+  function editRecord(r){
+    var copy = JSON.parse(JSON.stringify(r));
+    wizard = {
+      step:1, editId: r.id,
+      lote: copy.lote, tipo: copy.tipo, instalacion: copy.instalacion==="—" ? null : copy.instalacion,
+      circuito: copy.circuito==="—" ? "" : (copy.circuito||""), tecnico: copy.tecnico,
+      peso: copy.peso!=null ? String(copy.peso) : "", obs: copy.obs||"",
+      materials: copy.materials||{}, materialsOpen:{},
+      photos: Object.assign({bascula:null, escalimetro:null, cartel:null}, copy.photos||{}),
+      fotosMateriales: copy.fotosMateriales||{}, incidencias: copy.incidencias||[], incNueva:null,
+      tecManage:false, tecNuevo:"",
+      geo: copy.geo||null, geoPrecision: copy.geoPrecision||null
     };
     current="new";
     tabs.forEach(function(b){ b.classList.toggle("active", b.dataset.tab==="new"); });
@@ -1144,8 +1527,8 @@ a{color:var(--accent-ink)}
   var WIZARD_STEPS = ["Datos","Peso","Materiales","Fotos","Revisión"];
 
   function renderWizard(){
-    if(!wizard) wizard = {step:1, lote:null, tipo:null, instalacion:null, circuito:"", tecnico:state.tecnicos[0], peso:"", materials:{}, materialsOpen:{0:true}, photos:{bascula:null,escalimetro:null,cartel:null}, fotosMateriales:{}, incidencias:[], incNueva:null, tecManage:false, tecNuevo:"", geo:null};
-    setTop("Nueva caracterización", WIZARD_STEPS[wizard.step-1]+" · paso "+wizard.step+" de 5");
+    if(!wizard) wizard = {step:1, lote:null, tipo:null, instalacion:null, circuito:"", tecnico:tecnicoPorDefecto(), peso:"", obs:"", materials:{}, materialsOpen:{0:true}, photos:{bascula:null,escalimetro:null,cartel:null}, fotosMateriales:{}, incidencias:[], incNueva:null, tecManage:false, tecNuevo:"", geo:null};
+    setTop(wizard.editId? "Editar caracterización" : "Nueva caracterización", WIZARD_STEPS[wizard.step-1]+" · paso "+wizard.step+" de 5");
 
     var stepsHtml = '<div class="steps">'+[1,2,3,4,5].map(function(n){
       var cls = n<wizard.step?"done":(n===wizard.step?"now":"");
@@ -1177,10 +1560,14 @@ a{color:var(--accent-ink)}
     var tipoChips = tipos.map(function(t){
       return '<button type="button" class="chip '+(wizard.tipo===t.id?"sel":"")+'" data-tipo="'+t.id+'">'+t.label+'</button>';
     }).join("");
-    var insts = wizard.lote? INSTALACIONES[wizard.lote] : [];
+    var insts = wizard.lote? instalacionesDe(wizard.lote).slice() : [];
+    // Al editar un registro antiguo su instalación puede ya no estar en la lista.
+    if(wizard.instalacion && insts.indexOf(wizard.instalacion)<0) insts.unshift(wizard.instalacion);
     var instOptions = insts.map(function(i){ return '<option '+(wizard.instalacion===i?"selected":"")+'>'+esc(i)+'</option>' }).join("");
 
-    var tecChips = state.tecnicos.map(function(t){
+    var tecs = tecnicosLista().slice();
+    if(wizard.tecnico && tecs.indexOf(wizard.tecnico)<0) tecs.unshift(wizard.tecnico);
+    var tecChips = tecs.map(function(t){
       return '<button type="button" class="chip '+(wizard.tecnico===t?"sel":"")+'" data-tec="'+esc(t)+'">'+esc(t)+'</button>';
     }).join("");
     var tecManageRows = state.tecnicos.map(function(t){
@@ -1192,10 +1579,11 @@ a{color:var(--accent-ink)}
     var tecSection = '<div>'+
       '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px">'+
         '<div class="section-label">Técnico/a</div>'+
-        '<button type="button" class="btn ghost small" id="tecManageBtn">'+(wizard.tecManage?"Cerrar":"Editar técnicos")+'</button>'+
+        // Con Supabase la lista la gestiona el administrador desde Inicio → «Instalaciones y técnicos».
+        (SB? '' : '<button type="button" class="btn ghost small" id="tecManageBtn">'+(wizard.tecManage?"Cerrar":"Editar técnicos")+'</button>')+
       '</div>'+
       '<div class="chiprow">'+(tecChips||'<span style="font-size:12.5px;color:var(--fg-muted)">Añade un técnico/a</span>')+'</div>'+
-      (wizard.tecManage?
+      (wizard.tecManage && !SB?
         '<div style="display:flex;flex-direction:column;gap:8px; margin-top:10px">'+
           tecManageRows+
           '<div style="display:flex; gap:8px">'+
@@ -1241,7 +1629,7 @@ a{color:var(--accent-ink)}
     return '<div class="card field-row">'+
       '<label class="field">Peso de la muestra (kg)<input id="fPeso" inputmode="decimal" type="text" autocomplete="off" placeholder="Ej. 248" value="'+esc(wizard.peso)+'"></label>'+
       tolHtml+
-      '<label class="field">Observaciones de campo (opcional)<textarea id="fObs" placeholder="Incidencias, condiciones meteorológicas, etc."></textarea></label>'+
+      '<label class="field">Observaciones de campo (opcional)<textarea id="fObs" placeholder="Incidencias, condiciones meteorológicas, etc.">'+esc(wizard.obs||"")+'</textarea></label>'+
     '</div>'+
     '<div class="btn-row" style="display:flex; gap:10px">'+
       '<button class="btn ghost" id="backBtn" style="flex:1">Atrás</button>'+
@@ -1314,43 +1702,6 @@ a{color:var(--accent-ink)}
   }
   function round1(n){ return Math.round(n*10)/10; }
 
-  // Genera un .html independiente (con sus propios estilos, sin depender de la
-  // página) para cuando el botón "Imprimir" no abre el diálogo del navegador
-  // (algunos visores empotrados bloquean window.print()). Se puede abrir en
-  // cualquier navegador y desde ahí imprimir / guardar como PDF.
-  function standaloneReportHTML(title, bodyHtml){
-    return '<!doctype html><html lang="es"><head><meta charset="utf-8">'+
-      '<meta name="viewport" content="width=device-width, initial-scale=1">'+
-      '<title>'+esc(title)+'</title><style>'+
-      ':root{--c1:#2a78d6;--c2:#eb6834;--c3:#1baf7a;--c4:#eda100;--c5:#e87ba4;--c6:#008300;--c-other:#a7ab99;--fg:#1a1a1a;--fg-muted:#5b5f52;--border:#dfe3d2;--surface-2:#eef1e0;--danger:#b3261e}'+
-      'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#fff;color:#1a1a1a;margin:0;padding:20px 16px;max-width:640px}'+
-      'body,html{margin-left:auto;margin-right:auto}'+
-      '.card{border:1px solid #dfe3d2;border-radius:14px;padding:16px;margin-bottom:14px}'+
-      '.section-label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#5b5f52;font-weight:700}'+
-      'h2{font-size:18px;margin:4px 0 12px;font-family:inherit}'+
-      '.summary-row{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:8px 0;border-bottom:1px solid #dfe3d2}'+
-      '.summary-row:last-child{border-bottom:none}'+
-      '.summary-row span:first-child{color:#5b5f52}'+
-      '.summary-row span:last-child{font-weight:700;text-align:right}'+
-      '.photo-report-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}'+
-      '.photo-report-grid figure{margin:0;display:flex;flex-direction:column;gap:5px}'+
-      '.photo-report-grid img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;border:1px solid #dfe3d2;background:#eef1e0}'+
-      '.photo-report-grid figcaption{font-size:11px;color:#5b5f52}'+
-      '.chart-legend .lrow{display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:6px}'+
-      '.chart-legend .ldot{width:10px;height:10px;border-radius:3px;flex:none;display:inline-block}'+
-      '.chart-legend .llabel{flex:1}'+
-      '.chart-legend .lval{font-weight:700}'+
-      '.inc-item{display:flex;gap:10px;padding:10px;border:1px solid #dfe3d2;border-radius:12px;background:#eef1e0;margin-bottom:8px}'+
-      '.inc-item img{width:44px;height:44px;border-radius:8px;object-fit:cover;flex:none}'+
-      '.print-bar{display:flex;justify-content:center;margin-bottom:16px}'+
-      '.print-bar button{font:inherit;font-weight:700;font-size:14px;padding:10px 18px;border-radius:10px;border:none;background:#cdde00;color:#1a1a1a;cursor:pointer}'+
-      '@media print{ body{padding:0} .no-print{display:none !important} }'+
-      '</style></head><body>'+
-      '<div class="print-bar no-print"><button onclick="window.print()">Imprimir / Guardar como PDF</button></div>'+
-      bodyHtml+
-      '<script>window.addEventListener("load",function(){ setTimeout(function(){ try{ window.print(); }catch(e){} }, 350); });<\/script>'+
-      '</body></html>';
-  }
   // Descarga usando la capability oficial "downloads" (funciona dentro del visor de
   // artefactos embebido en claude.ai). Si esa capability no está disponible — p.ej. cuando
   // el artefacto se abre como página propia, fuera del visor embebido, algo que puede pasar
@@ -1509,6 +1860,7 @@ a{color:var(--accent-ink)}
 
   function stepReview(){
     var geo = wizard.geo;
+    var needGeo = !geo && !wizard.editId;
     var matEntries = Object.keys(wizard.materials).filter(function(k){ return parseFloat(wizard.materials[k])>0; });
     var matTotal = matEntries.reduce(function(s,k){ return s + parseFloat(wizard.materials[k]); }, 0);
     var topMats = matEntries.map(function(k){ return {label: materialLabel(wizard.tipo,k), kg: parseFloat(wizard.materials[k])}; })
@@ -1540,18 +1892,25 @@ a{color:var(--accent-ink)}
         '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-7.2 7-12a7 7 0 1 0-14 0c0 4.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.4"/></svg>'+
         '<div><b>'+(geo? geo : "Sin geolocalizar todavía")+'</b><span>'+(geo? "Precisión aproximada: "+(wizard.geoPrecision||"?")+" m" : esc(wizard.geoError||"Toca el botón para registrar dónde se ha hecho la caracterización."))+'</span></div>'+
       '</div>'+
-      '<button class="btn ghost block" id="geoBtn" style="margin-top:10px">'+(geo?"Actualizar ubicación":"Capturar ubicación")+'</button>'+
+      // Al editar desde la oficina no se ofrece «Actualizar»: daría la ubicación de la oficina.
+      ((wizard.editId && geo)? '' : '<button class="btn ghost block" id="geoBtn" style="margin-top:10px"'+(wizard.geoBusy?' disabled':'')+'>'+(wizard.geoBusy?"Localizando…":(geo?"Actualizar ubicación":"Capturar ubicación"))+'</button>')+
     '</div>'+
+    (needGeo? '<div class="tolerance warn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg><span>Para cerrar el registro hay que capturar la ubicación.</span></div>' : '')+
     '<div style="display:flex; gap:10px">'+
       '<button class="btn ghost" id="backBtn" style="flex:1">Atrás</button>'+
-      '<button class="btn primary" id="closeBtn" style="flex:2">Cerrar y guardar registro</button>'+
-    '</div>';
+      '<button class="btn primary" id="closeBtn" style="flex:2"'+(needGeo?' disabled':'')+'>'+(wizard.editId?"Guardar cambios":"Cerrar y guardar registro")+'</button>'+
+    '</div>'+
+    // Si el GPS falla (dentro de una nave, sin permiso…) se puede cerrar igualmente, dejándolo claro.
+    ((needGeo && wizard.geoError)? '<button class="btn ghost block small" id="noGeoBtn">Guardar sin ubicación</button>' : '');
   }
 
   function wireStep(){
     var backBtn = document.getElementById("backBtn");
     if(backBtn) backBtn.addEventListener("click", function(){
-      if(wizard.step===1){ goto("home"); return; }
+      if(wizard.step===1){
+        if(wizard.editId){ var eid = wizard.editId; goto("list"); openRecord(eid); return; }
+        goto("home"); return;
+      }
       wizard.step--; render();
     });
     var nextBtn = document.getElementById("nextBtn");
@@ -1618,6 +1977,8 @@ a{color:var(--accent-ink)}
     }
 
     if(wizard.step===2){
+      var fo = document.getElementById("fObs");
+      if(fo) fo.addEventListener("input", function(){ wizard.obs = fo.value; });
       var fp = document.getElementById("fPeso");
       if(fp) fp.addEventListener("input", function(){
         wizard.peso = sanitizeDecimal(fp.value);
@@ -1699,34 +2060,27 @@ a{color:var(--accent-ink)}
     }
 
     if(wizard.step===5){
+      function doGeo(){
+        wizard.geoBusy = true; render();
+        captureGeo(function(g, err){
+          if(!wizard) return;
+          wizard.geoBusy = false;
+          if(g){ wizard.geo = g.txt; wizard.geoPrecision = g.acc; wizard.geoError = ""; }
+          else wizard.geoError = err;
+          if(wizard.step===5) render();
+        });
+      }
+      // Al llegar a la revisión de un registro nuevo se intenta localizar sin que haga falta tocar nada.
+      if(!wizard.geo && !wizard.editId && !wizard.geoBusy && !wizard.geoAuto){ wizard.geoAuto = true; doGeo(); return; }
       var geoBtn = document.getElementById("geoBtn");
-      if(geoBtn) geoBtn.addEventListener("click", function(){
-        geoBtn.textContent = "Localizando…";
-        if(navigator.geolocation){
-          navigator.geolocation.getCurrentPosition(function(pos){
-            wizard.geo = pos.coords.latitude.toFixed(5)+", "+pos.coords.longitude.toFixed(5);
-            wizard.geoPrecision = Math.round(pos.coords.accuracy);
-            wizard.geoError = "";
-            render();
-          }, function(err){
-            // Nunca se inventan coordenadas: si no hay ubicación, el registro queda sin ella.
-            wizard.geoError = (err && err.code===1) ? "Permiso de ubicación denegado. Actívalo en los ajustes del navegador." : "No se pudo obtener la ubicación. Sal al exterior y vuelve a intentarlo.";
-            render();
-          }, {enableHighAccuracy:true, timeout:15000, maximumAge:60000});
-        } else {
-          wizard.geoError = "Este móvil no permite obtener la ubicación.";
-          render();
-        }
-      });
-      var closeBtn = document.getElementById("closeBtn");
-      if(closeBtn) closeBtn.addEventListener("click", function(){
-        var rec = {
-          id: "c"+Date.now(),
+      if(geoBtn) geoBtn.addEventListener("click", doGeo);
+      function guardar(){
+        var datos = {
           tipo: wizard.tipo, lote: wizard.lote, instalacion: wizard.instalacion || "—",
-          tecnico: wizard.tecnico, fecha: localDate(),
+          tecnico: wizard.tecnico,
           geo: wizard.geo || null, geoPrecision: wizard.geo ? (wizard.geoPrecision||null) : null,
-          cerrado: new Date().toISOString(),
           peso: wizard.peso ? parseFloat(wizard.peso) : null,
+          obs: (wizard.obs||"").trim(),
           estado: wizard.incidencias.length ? "incidencia" : "completo",
           circuito: wizard.circuito || "—",
           materials: Object.assign({}, wizard.materials),
@@ -1734,11 +2088,25 @@ a{color:var(--accent-ink)}
           fotosMateriales: Object.assign({}, wizard.fotosMateriales),
           incidencias: wizard.incidencias.slice()
         };
-        state.records.unshift(rec);
+        var rec;
+        if(wizard.editId){
+          var old = state.records.filter(function(x){ return x.id===wizard.editId; })[0];
+          if(!old){ toast("Este registro ya no existe"); goto("list"); return; }
+          rec = Object.assign(old, datos, {editado: new Date().toISOString(), editadoPor: perfil? perfil.nombre : null});
+        } else {
+          rec = Object.assign({id: "c"+Date.now(), fecha: localDate(), cerrado: new Date().toISOString()}, datos);
+          state.records.unshift(rec);
+        }
         markDirty(rec.id);
         save();
-        toast("Registro guardado correctamente");
-        goto("home");
+        if(wizard.editId){ toast("Cambios guardados"); goto("list"); openRecord(rec.id); }
+        else { toast("Registro guardado correctamente"); goto("home"); }
+      }
+      var closeBtn = document.getElementById("closeBtn");
+      if(closeBtn) closeBtn.addEventListener("click", guardar);
+      var noGeoBtn = document.getElementById("noGeoBtn");
+      if(noGeoBtn) noGeoBtn.addEventListener("click", function(){
+        if(confirm("El registro quedará guardado sin ubicación. ¿Continuar?")) guardar();
       });
     }
   }
