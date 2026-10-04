@@ -937,9 +937,15 @@ a{color:var(--accent-ink)}
       return '<div class="card field-row">'+
         '<div class="section-label">'+titulo+' ('+items.length+')</div>'+
         '<div style="display:flex;flex-direction:column;gap:8px">'+items.map(function(t, i){
-          return '<div class="inc-item" style="align-items:center; padding:8px 10px">'+
+          var pide = ajustes.confirmar && ajustes.confirmar.clave===clave && ajustes.confirmar.i===i;
+          return '<div class="inc-item" style="align-items:center; padding:8px 10px; flex-wrap:wrap">'+
             '<div class="itext">'+esc(t)+'</div>'+
-            '<button type="button" class="idel" data-ajdel="'+clave+'" data-i="'+i+'">Quitar</button>'+
+            (pide? '' : '<button type="button" class="idel" data-ajdel="'+clave+'" data-i="'+i+'">Quitar</button>')+
+            (pide? '<div style="flex-basis:100%; display:flex; gap:8px; margin-top:8px">'+
+              '<input id="ajPass" type="password" autocomplete="current-password" placeholder="Tu contraseña de administrador" style="flex:1; min-width:0; font-family:inherit; font-size:13px; padding:9px 10px; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--fg)">'+
+              '<button type="button" class="btn ghost small" id="ajPassNo">Cancelar</button>'+
+              '<button type="button" class="btn primary small" id="ajPassOk">Quitar</button>'+
+            '</div>' : '')+
           '</div>';
         }).join("")+'</div>'+
         '<div style="display:flex; gap:8px">'+
@@ -970,9 +976,28 @@ a{color:var(--accent-ink)}
     });
     main.querySelectorAll("[data-ajdel]").forEach(function(b){
       b.addEventListener("click", function(){
-        var l = lista(b.dataset.ajdel);
+        var clave = b.dataset.ajdel, i = parseInt(b.dataset.i,10), l = lista(clave);
         if(l.length<=1){ toast("Debe quedar al menos uno"); return; }
-        l.splice(parseInt(b.dataset.i,10), 1); renderAjustes();
+        // Quitar una instalación pide la contraseña del administrador.
+        if(clave!=="tecnicos"){ ajustes.confirmar = {clave:clave, i:i}; renderAjustes(); var pw = document.getElementById("ajPass"); if(pw) pw.focus(); return; }
+        l.splice(i, 1); renderAjustes();
+      });
+    });
+    var ajPassNo = document.getElementById("ajPassNo");
+    if(ajPassNo) ajPassNo.addEventListener("click", function(){ ajustes.confirmar = null; renderAjustes(); });
+    var ajPassOk = document.getElementById("ajPassOk");
+    if(ajPassOk) ajPassOk.addEventListener("click", function(){
+      var pass = document.getElementById("ajPass").value;
+      if(!pass){ toast("Escribe tu contraseña"); return; }
+      if(navigator.onLine===false){ toast("Necesitas conexión para comprobar la contraseña"); return; }
+      ajPassOk.disabled = true; ajPassOk.textContent = "Comprobando…";
+      // Se comprueba contra Supabase: la contraseña no se guarda en ningún sitio.
+      SB.auth.signInWithPassword({email: session.user.email, password: pass}).then(function(res){
+        if(res.error){ ajPassOk.disabled = false; ajPassOk.textContent = "Quitar"; toast("Contraseña incorrecta"); return; }
+        var c = ajustes.confirmar; ajustes.confirmar = null;
+        lista(c.clave).splice(c.i, 1);
+        toast("Quitada. Pulsa «Guardar para todos» para aplicarlo.");
+        renderAjustes();
       });
     });
     document.getElementById("ajSave").addEventListener("click", function(){
