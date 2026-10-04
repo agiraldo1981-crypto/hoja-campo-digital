@@ -1,6 +1,6 @@
 // Función «usuarios» de la Hoja de Campo Digital (Supabase Edge Function).
 // Permite que un administrador, desde la app, liste usuarios, los cree, les cambie
-// la contraseña y les dé o quite permisos de administrador.
+// la contraseña, les dé o quite permisos de administrador y los quite.
 // La clave secreta la pone Supabase dentro de la función: nunca sale del servidor.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -47,6 +47,7 @@ Deno.serve(async (req) => {
         usuarios: data.users.map((u) => ({
           id: u.id, email: u.email, nombre: p.get(u.id)?.nombre ?? u.email,
           es_admin: !!p.get(u.id)?.es_admin, ultimo_acceso: u.last_sign_in_at, yo: u.id === yo,
+          bloqueado: !!u.banned_until && new Date(u.banned_until) > new Date(),
         })).sort((a, b) => String(a.nombre).localeCompare(String(b.nombre))),
       });
     }
@@ -77,6 +78,29 @@ Deno.serve(async (req) => {
     if (body.accion === "admin") {
       if (body.user_id === yo && !body.es_admin) return json({ error: "No puedes quitarte a ti mismo el permiso de administrador." }, 400);
       const { error } = await admin.from("perfiles").update({ es_admin: !!body.es_admin }).eq("user_id", String(body.user_id));
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
+    if (body.accion === "quitar") {
+      const id = String(body.user_id);
+      if (id === yo) return json({ error: "No puedes quitarte a ti mismo." }, 400);
+      // Si tiene registros no se borra (se perderían sus caracterizaciones): se le quita el acceso.
+      const { count, error: errCount } = await admin.from("registros").select("id", { count: "exact", head: true }).eq("user_id", id);
+      if (errCount) throw errCount;
+      if (count && count > 0) {
+        const { error } = await admin.auth.admin.updateUserById(id, { ban_duration: "876000h" });
+        if (error) throw error;
+        await admin.from("perfiles").update({ es_admin: false }).eq("user_id", id);
+        return json({ ok: true, bloqueado: true, registros: count });
+      }
+      const { error } = await admin.auth.admin.deleteUser(id);
+      if (error) throw error;
+      return json({ ok: true, borrado: true });
+    }
+
+    if (body.accion === "devolver") {
+      const { error } = await admin.auth.admin.updateUserById(String(body.user_id), { ban_duration: "none" });
       if (error) throw error;
       return json({ ok: true });
     }

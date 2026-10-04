@@ -966,13 +966,17 @@ a{color:var(--accent-ink)}
         return '<div class="inc-item" style="flex-direction:column; align-items:stretch; gap:6px; padding:10px">'+
           '<div style="display:flex; align-items:center; gap:8px">'+
             '<div style="flex:1; min-width:0"><b style="font-size:13px">'+esc(u.nombre)+(u.yo?' (tú)':'')+'</b><div style="font-size:11.5px;color:var(--fg-muted);overflow:hidden;text-overflow:ellipsis">'+esc(u.email)+'</div></div>'+
-            (u.es_admin? '<span class="pill ok">Administrador</span>' : '')+
+            (u.bloqueado? '<span class="pill warn">Sin acceso</span>' : (u.es_admin? '<span class="pill ok">Administrador</span>' : ''))+
           '</div>'+
+          (u.bloqueado?
+            '<div style="display:flex; gap:8px; flex-wrap:wrap"><button type="button" class="btn ghost small" data-usdevolver="'+u.id+'">Devolver acceso</button></div>' :
           '<div style="display:flex; gap:8px; flex-wrap:wrap">'+
             '<button type="button" class="btn ghost small" data-uspass="'+u.id+'">'+(abierto?'Cancelar':'Cambiar contraseña')+'</button>'+
             (u.yo? '' : '<button type="button" class="btn ghost small" data-usadmin="'+u.id+'" data-val="'+(u.es_admin?0:1)+'">'+(u.es_admin?'Quitar administrador':'Hacer administrador')+'</button>')+
-          '</div>'+
+            (u.yo? '' : '<button type="button" class="btn ghost small" style="color:var(--danger)" data-usquitar="'+u.id+'">Quitar usuario</button>')+
+          '</div>')+
           (abierto? '<div style="display:flex; gap:8px"><input id="usNewPass" type="text" autocomplete="off" placeholder="Nueva contraseña (mín. 8)" style="'+inp+'; flex:1"><button type="button" class="btn primary small" id="usPassOk">Guardar</button></div>' : '')+
+          (usuarios.quitar===u.id? '<div style="display:flex; gap:8px"><input id="usAdminPass" type="password" autocomplete="current-password" placeholder="Tu contraseña de administrador" style="'+inp+'; flex:1"><button type="button" class="btn ghost small" id="usQuitarNo">Cancelar</button><button type="button" class="btn primary small" id="usQuitarOk">Quitar</button></div>' : '')+
         '</div>';
       }).join("");
     main.innerHTML =
@@ -1006,7 +1010,7 @@ a{color:var(--accent-ink)}
       }).catch(function(e){ btn.disabled = false; btn.textContent = "Crear usuario"; toast("No se pudo crear: "+e.message); });
     });
     main.querySelectorAll("[data-uspass]").forEach(function(b){
-      b.addEventListener("click", function(){ usuarios.abierto = usuarios.abierto===b.dataset.uspass ? null : b.dataset.uspass; renderUsuarios(); });
+      b.addEventListener("click", function(){ usuarios.quitar = null; usuarios.abierto = usuarios.abierto===b.dataset.uspass ? null : b.dataset.uspass; renderUsuarios(); });
     });
     var usPassOk = document.getElementById("usPassOk");
     if(usPassOk) usPassOk.addEventListener("click", function(){
@@ -1016,6 +1020,41 @@ a{color:var(--accent-ink)}
       llamarUsuarios({accion:"contrasena", user_id:usuarios.abierto, password:pw}).then(function(){
         usuarios.abierto = null; toast("Contraseña cambiada"); renderUsuarios();
       }).catch(function(e){ usPassOk.disabled = false; toast("No se pudo cambiar: "+e.message); });
+    });
+    main.querySelectorAll("[data-usquitar]").forEach(function(b){
+      b.addEventListener("click", function(){
+        var u = usuarios.lista.filter(function(x){ return x.id===b.dataset.usquitar; })[0];
+        if(!confirm("¿Seguro que quieres quitar a «"+u.nombre+"» ("+u.email+")?\n\nYa no podrá entrar en la app. Si tiene registros, se conservan y solo se le quita el acceso.")) return;
+        usuarios.quitar = u.id; usuarios.abierto = null; renderUsuarios();
+        var pw = document.getElementById("usAdminPass"); if(pw) pw.focus();
+      });
+    });
+    var usQuitarNo = document.getElementById("usQuitarNo");
+    if(usQuitarNo) usQuitarNo.addEventListener("click", function(){ usuarios.quitar = null; renderUsuarios(); });
+    var usQuitarOk = document.getElementById("usQuitarOk");
+    if(usQuitarOk) usQuitarOk.addEventListener("click", function(){
+      var pass = document.getElementById("usAdminPass").value;
+      if(!pass){ toast("Escribe tu contraseña"); return; }
+      usQuitarOk.disabled = true; usQuitarOk.textContent = "Comprobando…";
+      var fallo = function(m){ usQuitarOk.disabled = false; usQuitarOk.textContent = "Quitar"; toast(m); };
+      // La contraseña se comprueba en Supabase y no se guarda.
+      SB.auth.signInWithPassword({email: session.user.email, password: pass}).then(function(res){
+        if(res.error){ fallo("Contraseña incorrecta"); return; }
+        return llamarUsuarios({accion:"quitar", user_id:usuarios.quitar}).then(function(d){
+          usuarios.quitar = null;
+          toast(d && d.bloqueado ? "Acceso quitado (sus "+d.registros+" registro(s) se conservan)" : "Usuario quitado");
+          cargarUsuarios(); renderUsuarios();
+        });
+      }).catch(function(e){ fallo("No se pudo quitar: "+e.message); });
+    });
+    main.querySelectorAll("[data-usdevolver]").forEach(function(b){
+      b.addEventListener("click", function(){
+        var u = usuarios.lista.filter(function(x){ return x.id===b.dataset.usdevolver; })[0];
+        if(!confirm("¿Devolver el acceso a «"+u.nombre+"»?")) return;
+        b.disabled = true;
+        llamarUsuarios({accion:"devolver", user_id:u.id}).then(function(){ toast("Acceso devuelto"); cargarUsuarios(); renderUsuarios(); })
+          .catch(function(e){ b.disabled = false; toast("No se pudo: "+e.message); });
+      });
     });
     main.querySelectorAll("[data-usadmin]").forEach(function(b){
       b.addEventListener("click", function(){
