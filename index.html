@@ -1590,7 +1590,41 @@ a{color:var(--accent-ink)}
       var total = entries.reduce(function(s2,e){ return s2+e.kg; },0);
       label("Composición de materiales"+(total? " ("+round1(total)+" kg)" : ""));
       if(!entries.length){ doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor.apply(doc, muted); doc.text("Sin desglose de materiales registrado.", M, y+4); y += 8; }
-      entries.forEach(function(e){
+      // Diagrama de sectores, con los mismos colores y agrupación que en pantalla.
+      if(entries.length && total>0){
+        var MAXS = 6, PAL = ["#2a78d6","#eb6834","#1baf7a","#eda100","#e87ba4","#008300"], OTRO = "#a7ab99";
+        var slices = entries.slice(0, MAXS);
+        if(entries.length>MAXS) slices = slices.concat([{label:"Otros", kg: entries.slice(MAXS).reduce(function(s2,e){ return s2+e.kg; },0), other:true}]);
+        var cv = document.createElement("canvas"), S = 600; cv.width = cv.height = S;
+        var g = cv.getContext("2d"), R = S/2-50, lw = 96, ang = -Math.PI/2, gapA = slices.length>1 ? 0.018 : 0;
+        g.fillStyle = "#fff"; g.fillRect(0,0,S,S); g.lineWidth = lw;
+        slices.forEach(function(e,i){
+          var span = e.kg/total*2*Math.PI;
+          g.strokeStyle = e.other ? OTRO : PAL[i];
+          g.beginPath(); g.arc(S/2, S/2, R, ang, ang+Math.max(span-gapA, 0.001)); g.stroke();
+          ang += span;
+        });
+        g.fillStyle = "#1a1a1a"; g.textAlign = "center"; g.font = "700 64px Helvetica, Arial, sans-serif";
+        g.fillText(String(round1(total)), S/2, S/2+8);
+        g.fillStyle = "#5b5f52"; g.font = "32px Helvetica, Arial, sans-serif"; g.fillText("kg clasificados", S/2, S/2+56);
+        var D = 52, legH = slices.length*7;
+        need(Math.max(D, legH)+4);
+        doc.addImage(cv.toDataURL("image/png"), "PNG", M, y, D, D, undefined, "FAST");
+        var lx = M+D+8, ly = y + Math.max(0, (D-legH)/2);
+        slices.forEach(function(e,i){
+          var col = e.other ? OTRO : PAL[i];
+          doc.setFillColor(parseInt(col.substr(1,2),16), parseInt(col.substr(3,2),16), parseInt(col.substr(5,2),16));
+          doc.rect(lx, ly+1.8, 3.2, 3.2, "F");
+          doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.setTextColor.apply(doc, ink);
+          doc.text(doc.splitTextToSize(pdfTxt(e.label), W-M-lx-45)[0], lx+5.5, ly+4.6);
+          doc.setFont("helvetica","bold"); doc.text(round1(e.kg/total*100)+"% · "+round1(e.kg)+" kg", W-M, ly+4.6, {align:"right"});
+          ly += 7;
+        });
+        y += Math.max(D, legH) + 6;
+        if(entries.length>MAXS) label("Detalle por material");
+      }
+      // Detalle completo cuando el diagrama agrupa materiales en «Otros».
+      if(entries.length>6) entries.forEach(function(e){
         need(8);
         var pct = total? e.kg/total*100 : 0;
         doc.setFont("helvetica","normal"); doc.setFontSize(9.5); doc.setTextColor.apply(doc, ink);
