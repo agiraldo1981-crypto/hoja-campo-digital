@@ -1744,6 +1744,7 @@ a{color:var(--accent-ink)}
     e.preventDefault();
     deferredInstall = e;
     if(installBtn) installBtn.style.display = "flex";
+    if(current==="home" && !wizard) render();
   });
   if(installBtn) installBtn.addEventListener("click", function(){
     if(!deferredInstall) return;
@@ -1762,7 +1763,7 @@ a{color:var(--accent-ink)}
   function installHintText(){
     if(IS_STANDALONE) return "";
     if(IS_IOS) return "Para instalarla en iPhone/iPad: toca Compartir y luego «Añadir a pantalla de inicio».";
-    return "Para instalarla, toca el icono de instalación arriba a la derecha (o el menú de tu navegador → «Instalar app» / «Añadir a pantalla de inicio»).";
+    return deferredInstall ? "Para instalarla, toca el icono de instalación arriba a la derecha." : "Para instalarla, abre el menú ⋮ del navegador y toca «Instalar app» o «Añadir a pantalla de inicio». Después ábrela desde su icono: se verá a pantalla completa, sin barra de direcciones.";
   }
 
   render();
