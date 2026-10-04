@@ -978,7 +978,9 @@ a{color:var(--accent-ink)}
       b.addEventListener("click", function(){
         var clave = b.dataset.ajdel, i = parseInt(b.dataset.i,10), l = lista(clave);
         if(l.length<=1){ toast("Debe quedar al menos uno"); return; }
-        // Quitar una instalación o un técnico pide la contraseña del administrador.
+        // Quitar una instalación o un técnico: primero se pregunta y después se pide la contraseña del administrador.
+        var que = clave==="tecnicos" ? "al técnico/a" : "la instalación";
+        if(!confirm("¿Seguro que quieres quitar "+que+" «"+l[i]+"»?\n\nLos registros ya hechos no cambian.")) return;
         ajustes.confirmar = {clave:clave, i:i}; renderAjustes();
         var pw = document.getElementById("ajPass"); if(pw) pw.focus();
       });
