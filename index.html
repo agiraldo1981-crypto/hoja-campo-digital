@@ -617,7 +617,7 @@ a{color:var(--accent-ink)}
       syncing = false;
       try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
       // No se repinta encima de lo que el técnico está mirando o escribiendo.
-      if(wizard || detalle || current==="ajustes") paintSync();
+      if(wizard || detalle || current==="ajustes" || current==="usuarios") paintSync();
       else if(current==="list" && document.getElementById("listResults")) paintList();
       else render();
     });
@@ -716,7 +716,8 @@ a{color:var(--accent-ink)}
         '<button class="btn ghost small" id="syncBtn">Sincronizar ahora</button>'+
         '<button class="btn ghost small" id="logoutBtn">Cerrar sesión</button>'+
       '</div>'+
-      (perfil && perfil.es_admin? '<button class="btn ghost block" id="ajustesBtn" style="margin-top:8px">Instalaciones y técnicos</button>'+
+      (perfil && perfil.es_admin? '<button class="btn ghost block" id="usuariosBtn" style="margin-top:8px">Usuarios</button>'+
+        '<button class="btn ghost block" id="ajustesBtn" style="margin-top:8px">Instalaciones y técnicos</button>'+
         '<button class="btn ghost block" id="backupBtn" style="margin-top:8px">Descargar copia (Excel)</button>' : '')+
     '</div>';
   }
@@ -763,6 +764,8 @@ a{color:var(--accent-ink)}
     }).then(done);
   }
   function attachSessionHandlers(){
+    var us = document.getElementById("usuariosBtn");
+    if(us) us.addEventListener("click", function(){ goto("usuarios"); });
     var aj = document.getElementById("ajustesBtn");
     if(aj) aj.addEventListener("click", function(){ goto("ajustes"); });
     var bk = document.getElementById("backupBtn");
@@ -906,6 +909,7 @@ a{color:var(--accent-ink)}
     wizard = null;
     detalle = null;
     if(tab!=="ajustes") ajustes = null;
+    if(tab!=="usuarios") usuarios = null;
     tabs.forEach(function(b){ b.classList.toggle("active", b.dataset.tab===tab); });
     render();
   }
@@ -922,6 +926,108 @@ a{color:var(--accent-ink)}
     if(current==="list") return renderList();
     if(current==="new") return renderWizard();
     if(current==="ajustes") return renderAjustes();
+    if(current==="usuarios") return renderUsuarios();
+  }
+
+  /* ---------- USUARIOS (administrador) ---------- */
+  // Crear usuarios necesita la clave secreta, que solo vive en la función «usuarios» de
+  // Supabase (supabase/functions/usuarios). La app solo le envía la sesión del administrador.
+  var usuarios = null; // {lista, cargando, error, form, abierto}
+  function llamarUsuarios(body){
+    return SB.functions.invoke("usuarios", {body: body}).then(function(res){
+      if(res.error){
+        var ctx = res.error.context;
+        if(ctx && ctx.status===404) throw new Error("not found");
+        if(ctx && typeof ctx.json==="function") return ctx.json().then(function(j){ throw new Error(j.error || j.message || res.error.message); }, function(){ throw res.error; });
+        throw res.error;
+      }
+      if(res.data && res.data.error) throw new Error(res.data.error);
+      return res.data;
+    }).catch(function(e){
+      var m = (e && e.message) || "error";
+      if(/Failed to send|Failed to fetch|not found|404/i.test(m)) m = navigator.onLine===false ? "sin conexión" : "falta instalar la función «usuarios» en Supabase";
+      throw new Error(m);
+    });
+  }
+  function cargarUsuarios(){
+    usuarios.cargando = true; usuarios.error = "";
+    llamarUsuarios({accion:"listar"}).then(function(d){ usuarios.lista = d.usuarios; }).catch(function(e){ usuarios.error = e.message; })
+      .then(function(){ usuarios.cargando = false; if(current==="usuarios") renderUsuarios(); });
+  }
+  function renderUsuarios(){
+    setTop("Usuarios","Quién puede entrar en la app");
+    if(!usuarios){ usuarios = {lista:null, form:{nombre:"", email:"", password:"", es_admin:false}, abierto:null}; cargarUsuarios(); }
+    var inp = 'font-family:inherit; font-size:13px; padding:9px 10px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--fg); width:100%; min-width:0';
+    var f = usuarios.form;
+    var listaHtml = usuarios.cargando ? '<div style="font-size:12.5px;color:var(--fg-muted)">Cargando…</div>' :
+      usuarios.error ? '<div style="font-size:12.5px;color:var(--danger)">No se pudo cargar: '+esc(usuarios.error)+'</div>' :
+      (usuarios.lista||[]).map(function(u){
+        var abierto = usuarios.abierto===u.id;
+        return '<div class="inc-item" style="flex-direction:column; align-items:stretch; gap:6px; padding:10px">'+
+          '<div style="display:flex; align-items:center; gap:8px">'+
+            '<div style="flex:1; min-width:0"><b style="font-size:13px">'+esc(u.nombre)+(u.yo?' (tú)':'')+'</b><div style="font-size:11.5px;color:var(--fg-muted);overflow:hidden;text-overflow:ellipsis">'+esc(u.email)+'</div></div>'+
+            (u.es_admin? '<span class="pill ok">Administrador</span>' : '')+
+          '</div>'+
+          '<div style="display:flex; gap:8px; flex-wrap:wrap">'+
+            '<button type="button" class="btn ghost small" data-uspass="'+u.id+'">'+(abierto?'Cancelar':'Cambiar contraseña')+'</button>'+
+            (u.yo? '' : '<button type="button" class="btn ghost small" data-usadmin="'+u.id+'" data-val="'+(u.es_admin?0:1)+'">'+(u.es_admin?'Quitar administrador':'Hacer administrador')+'</button>')+
+          '</div>'+
+          (abierto? '<div style="display:flex; gap:8px"><input id="usNewPass" type="text" autocomplete="off" placeholder="Nueva contraseña (mín. 8)" style="'+inp+'; flex:1"><button type="button" class="btn primary small" id="usPassOk">Guardar</button></div>' : '')+
+        '</div>';
+      }).join("");
+    main.innerHTML =
+      '<button class="btn ghost small" id="backBtn" style="align-self:flex-start">&larr; Volver</button>'+
+      '<div class="card field-row">'+
+        '<div class="section-label">Nuevo usuario</div>'+
+        '<label class="field">Nombre<input id="usNombre" type="text" value="'+esc(f.nombre)+'" placeholder="Nombre y apellido"></label>'+
+        '<label class="field">Correo electrónico<input id="usEmail" type="email" inputmode="email" autocomplete="off" value="'+esc(f.email)+'"></label>'+
+        '<label class="field">Contraseña inicial<input id="usPass" type="text" autocomplete="off" value="'+esc(f.password)+'" placeholder="Mínimo 8 caracteres"></label>'+
+        '<label style="display:flex; align-items:center; gap:8px; font-size:13px"><input id="usAdmin" type="checkbox"'+(f.es_admin?' checked':'')+'> Es administrador</label>'+
+        '<button class="btn primary block" id="usCrear">Crear usuario</button>'+
+        '<div style="font-size:11.5px;color:var(--fg-muted)">Pásale el correo y la contraseña a la persona; podrá entrar en la app al momento.</div>'+
+      '</div>'+
+      '<div class="card"><div class="section-label" style="margin-bottom:10px">Usuarios'+(usuarios.lista? ' ('+usuarios.lista.length+')' : '')+'</div>'+
+        '<div style="display:flex;flex-direction:column;gap:8px">'+listaHtml+'</div></div>';
+    document.getElementById("backBtn").addEventListener("click", function(){ usuarios = null; goto("home"); });
+    [["usNombre","nombre"],["usEmail","email"],["usPass","password"]].forEach(function(x){
+      document.getElementById(x[0]).addEventListener("input", function(){ f[x[1]] = this.value; });
+    });
+    document.getElementById("usAdmin").addEventListener("change", function(){ f.es_admin = this.checked; });
+    document.getElementById("usCrear").addEventListener("click", function(){
+      var btn = this;
+      if(!f.nombre.trim() || !f.email.trim()){ toast("Escribe el nombre y el correo"); return; }
+      if(f.password.length<8){ toast("La contraseña debe tener al menos 8 caracteres"); return; }
+      if(f.es_admin && !confirm("¿Seguro que quieres crear a «"+f.nombre.trim()+"» como administrador?")) return;
+      btn.disabled = true; btn.textContent = "Creando…";
+      llamarUsuarios({accion:"crear", nombre:f.nombre.trim(), email:f.email.trim(), password:f.password, es_admin:f.es_admin}).then(function(){
+        toast("Usuario creado");
+        usuarios.form = {nombre:"", email:"", password:"", es_admin:false};
+        cargarUsuarios(); renderUsuarios();
+      }).catch(function(e){ btn.disabled = false; btn.textContent = "Crear usuario"; toast("No se pudo crear: "+e.message); });
+    });
+    main.querySelectorAll("[data-uspass]").forEach(function(b){
+      b.addEventListener("click", function(){ usuarios.abierto = usuarios.abierto===b.dataset.uspass ? null : b.dataset.uspass; renderUsuarios(); });
+    });
+    var usPassOk = document.getElementById("usPassOk");
+    if(usPassOk) usPassOk.addEventListener("click", function(){
+      var pw = document.getElementById("usNewPass").value;
+      if(pw.length<8){ toast("La contraseña debe tener al menos 8 caracteres"); return; }
+      usPassOk.disabled = true;
+      llamarUsuarios({accion:"contrasena", user_id:usuarios.abierto, password:pw}).then(function(){
+        usuarios.abierto = null; toast("Contraseña cambiada"); renderUsuarios();
+      }).catch(function(e){ usPassOk.disabled = false; toast("No se pudo cambiar: "+e.message); });
+    });
+    main.querySelectorAll("[data-usadmin]").forEach(function(b){
+      b.addEventListener("click", function(){
+        var u = usuarios.lista.filter(function(x){ return x.id===b.dataset.usadmin; })[0];
+        var hacer = b.dataset.val==="1";
+        if(!confirm(hacer? "¿Seguro que quieres hacer administrador a «"+u.nombre+"»?" : "¿Seguro que quieres quitar el permiso de administrador a «"+u.nombre+"»?")) return;
+        b.disabled = true;
+        llamarUsuarios({accion:"admin", user_id:u.id, es_admin:hacer}).then(function(){
+          toast("Hecho"); cargarUsuarios(); renderUsuarios();
+        }).catch(function(e){ b.disabled = false; toast("No se pudo: "+e.message); });
+      });
+    });
   }
 
   /* ---------- AJUSTES (administrador): instalaciones y técnicos para todos ---------- */

@@ -2,7 +2,7 @@
 // Solo cachea el "app shell" (la propia página, que lleva el logo y los estilos
 // incrustados) para que la app abra sin conexión una vez instalada. Los datos
 // de las caracterizaciones viven en localStorage y en Supabase, no aquí.
-const CACHE = "trinijove-hcd-v11";
+const CACHE = "trinijove-hcd-v12";
 // Las fotos tienen nombres únicos y no cambian nunca: se guardan aparte y no se borran al actualizar.
 const FOTOS = "trinijove-fotos-v1";
 const SHELL = ["./", "./index.html", "./manifest.json", "./config.js", "./vendor/supabase-2.117.2.js", "./vendor/jspdf-4.2.1.umd.min.js", "./icon-192-v2.png", "./icon-512-v2.png"];

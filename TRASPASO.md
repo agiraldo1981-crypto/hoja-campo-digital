@@ -39,6 +39,7 @@ Coste actual: 0 € (GitHub Pages gratis, Supabase plan Free).
 - `vendor/`: librerías incluidas (supabase-js 2.117.2, SheetJS 0.18.5 y jsPDF 4.2.1) para no depender de CDN.
 - `supabase/schema.sql`: tablas, seguridad y bucket de fotos. Ya ejecutado.
 - `supabase/02-borrar-registros.sql`: permiso de borrado para el administrador. Ya ejecutado; también está incluido en `schema.sql`.
+- `supabase/functions/usuarios/index.ts`: función de Supabase para gestionar usuarios desde la app. La clave secreta solo existe dentro de Supabase.
 - `supabase/03-ajustes.sql`: tabla `ajustes` con las instalaciones y los técnicos comunes. También incluido en `schema.sql`.
 - `.github/workflows/mantener-supabase-activo.yml`: consulta Supabase lunes y jueves para que el plan gratuito no se pause.
 
@@ -52,7 +53,7 @@ Coste actual: 0 € (GitHub Pages gratis, Supabase plan Free).
 
 ## Tareas habituales
 
-- **Dar de alta a un técnico**: Supabase → Authentication → Users → Add user → Create new user, con email, contraseña y «Auto Confirm User» marcado.
+- **Dar de alta a un técnico**: en la app, Inicio → «Usuarios» (solo administradores). Desde ahí también se cambian contraseñas y se dan o quitan permisos de administrador. Usa la función de Supabase `usuarios` (`supabase/functions/usuarios/index.ts`), que se instala en Supabase → Edge Functions → Deploy a new function → Via Editor, con el nombre `usuarios`. Alternativa sin la función: Supabase → Authentication → Users → Add user, con «Auto Confirm User» marcado.
 - **Cambiar una contraseña olvidada**: Supabase → SQL Editor:
   `update auth.users set encrypted_password = crypt('NuevaContraseña', gen_salt('bf')) where email = 'email@ejemplo.com';`
 - **Ver los datos**: Supabase → Table Editor → `registros`. Fotos en Storage → `fotos`.
