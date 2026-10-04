@@ -483,6 +483,11 @@ a{color:var(--accent-ink)}
     {id:"c4", tipo:"R2FO", lote:2, instalacion:"Planta de tratamiento biológico de Terrassa", tecnico:"Marc Oliveras", fecha:"2026-09-26", peso:np(), estado:"revision", circuito:"TER-009", incidencias:[]}
   ];
   function np(){return null}
+  // Fecha del día en la hora del móvil (toISOString da la fecha UTC y de madrugada saldría el día anterior).
+  function localDate(){
+    var d = new Date();
+    return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  }
 
   var SB = (window.supabase && window.HCD_CONFIG && window.HCD_CONFIG.supabaseUrl) ?
     window.supabase.createClient(window.HCD_CONFIG.supabaseUrl, window.HCD_CONFIG.supabaseKey) : null;
@@ -713,7 +718,7 @@ a{color:var(--accent-ink)}
         (r.incidencias||[]).forEach(function(i){ incs.push(Object.assign({}, base, {"Incidencia": i.texto, "Foto": i.foto||""})); });
         regs.push(Object.assign({}, base, {
           "Lote": r.lote, "Instalación": r.instalacion, "Circuito": r.circuito, "Técnico/a": r.tecnico,
-          "Peso (kg)": r.peso, "Estado": ({completo:"Completo", incidencia:"Con incidencias", revision:"En revisión"})[r.estado] || r.estado, "Fotos": nFotos, "Incidencias": (r.incidencias||[]).length,
+          "Peso (kg)": r.peso, "Ubicación": r.geo || "", "Estado": ({completo:"Completo", incidencia:"Con incidencias", revision:"En revisión"})[r.estado] || r.estado, "Fotos": nFotos, "Incidencias": (r.incidencias||[]).length,
           "Subido": row.creado ? row.creado.slice(0,16).replace("T"," ") : ""
         }));
       });
@@ -721,7 +726,7 @@ a{color:var(--accent-ink)}
       [["Registros",regs],["Materiales",mats],["Incidencias",incs],["Fotos",fotos]].forEach(function(sh){
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sh[1].length? sh[1] : [{"(sin datos)":""}]), sh[0]);
       });
-      XLSX.writeFile(wb, "hoja-de-campo-copia-"+new Date().toISOString().slice(0,10)+".xlsx");
+      XLSX.writeFile(wb, "hoja-de-campo-copia-"+localDate()+".xlsx");
       toast("Copia descargada: "+regs.length+" registro(s)");
     }).catch(function(e){
       toast("No se pudo preparar la copia: "+((e && e.message) || "error"));
@@ -957,14 +962,14 @@ a{color:var(--accent-ink)}
         '<div class="summary-row"><span>Técnico/a</span><span>'+esc(r.tecnico)+'</span></div>'+
         '<div class="summary-row"><span>Fecha</span><span>'+r.fecha+'</span></div>'+
         (r.peso? '<div class="summary-row"><span>Peso de muestra</span><span>'+r.peso+' kg</span></div>' : '') +
-        '<div class="summary-row"><span>Geolocalización</span><span>Capturada al cierre</span></div>'+
+        '<div class="summary-row"><span>Geolocalización</span><span>'+(r.geo? '<a href="https://maps.google.com/?q='+encodeURIComponent(r.geo)+'" target="_blank" rel="noopener">'+esc(r.geo)+'</a>' : 'No capturada')+'</span></div>'+
       '</div>'+
       materialsCard(r)+
       photosCard(r)+
       incidenciasCard(r)+
       '<div class="banner">'+
         '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>'+
-        '<div>Registro validado en campo: campos obligatorios, fotografías y geolocalización comprobados antes del cierre, conforme al protocolo de caracterización de la ARC.</div>'+
+        '<div>Registro validado en campo: campos obligatorios y fotografías comprobados antes del cierre, conforme al protocolo de caracterización de la ARC. '+(r.geo? 'Ubicación registrada al cierre.' : 'Sin ubicación registrada.')+'</div>'+
       '</div>'+
       '<button class="btn primary block" id="reportBtn">'+
         '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5h5"/><path d="M6 3h8l5 5v13H6z"/><path d="M9 13h6M9 17h6"/></svg>'+
@@ -1533,7 +1538,7 @@ a{color:var(--accent-ink)}
       '<div class="section-label" style="margin-bottom:10px">Identificación y geolocalización</div>'+
       '<div class="geobox">'+
         '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-7.2 7-12a7 7 0 1 0-14 0c0 4.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.4"/></svg>'+
-        '<div><b>'+(geo? geo : "Sin geolocalizar todavía")+'</b><span>Firma digital del técnico vinculada al registro</span></div>'+
+        '<div><b>'+(geo? geo : "Sin geolocalizar todavía")+'</b><span>'+(geo? "Precisión aproximada: "+(wizard.geoPrecision||"?")+" m" : esc(wizard.geoError||"Toca el botón para registrar dónde se ha hecho la caracterización."))+'</span></div>'+
       '</div>'+
       '<button class="btn ghost block" id="geoBtn" style="margin-top:10px">'+(geo?"Actualizar ubicación":"Capturar ubicación")+'</button>'+
     '</div>'+
@@ -1700,13 +1705,16 @@ a{color:var(--accent-ink)}
         if(navigator.geolocation){
           navigator.geolocation.getCurrentPosition(function(pos){
             wizard.geo = pos.coords.latitude.toFixed(5)+", "+pos.coords.longitude.toFixed(5);
+            wizard.geoPrecision = Math.round(pos.coords.accuracy);
+            wizard.geoError = "";
             render();
-          }, function(){
-            wizard.geo = "41.42367, 2.18868 (aprox.)";
+          }, function(err){
+            // Nunca se inventan coordenadas: si no hay ubicación, el registro queda sin ella.
+            wizard.geoError = (err && err.code===1) ? "Permiso de ubicación denegado. Actívalo en los ajustes del navegador." : "No se pudo obtener la ubicación. Sal al exterior y vuelve a intentarlo.";
             render();
-          }, {timeout:4000});
+          }, {enableHighAccuracy:true, timeout:15000, maximumAge:60000});
         } else {
-          wizard.geo = "41.42367, 2.18868 (aprox.)";
+          wizard.geoError = "Este móvil no permite obtener la ubicación.";
           render();
         }
       });
@@ -1715,7 +1723,9 @@ a{color:var(--accent-ink)}
         var rec = {
           id: "c"+Date.now(),
           tipo: wizard.tipo, lote: wizard.lote, instalacion: wizard.instalacion || "—",
-          tecnico: wizard.tecnico, fecha: new Date().toISOString().slice(0,10),
+          tecnico: wizard.tecnico, fecha: localDate(),
+          geo: wizard.geo || null, geoPrecision: wizard.geo ? (wizard.geoPrecision||null) : null,
+          cerrado: new Date().toISOString(),
           peso: wizard.peso ? parseFloat(wizard.peso) : null,
           estado: wizard.incidencias.length ? "incidencia" : "completo",
           circuito: wizard.circuito || "—",
