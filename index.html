@@ -978,9 +978,9 @@ a{color:var(--accent-ink)}
       b.addEventListener("click", function(){
         var clave = b.dataset.ajdel, i = parseInt(b.dataset.i,10), l = lista(clave);
         if(l.length<=1){ toast("Debe quedar al menos uno"); return; }
-        // Quitar una instalación pide la contraseña del administrador.
-        if(clave!=="tecnicos"){ ajustes.confirmar = {clave:clave, i:i}; renderAjustes(); var pw = document.getElementById("ajPass"); if(pw) pw.focus(); return; }
-        l.splice(i, 1); renderAjustes();
+        // Quitar una instalación o un técnico pide la contraseña del administrador.
+        ajustes.confirmar = {clave:clave, i:i}; renderAjustes();
+        var pw = document.getElementById("ajPass"); if(pw) pw.focus();
       });
     });
     var ajPassNo = document.getElementById("ajPassNo");
