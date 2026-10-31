@@ -703,9 +703,19 @@ a{color:var(--accent-ink)}
       loginBusy = true; loginMsg = ""; renderLogin();
       SB.auth.signInWithPassword({email: email, password: pass}).then(function(res){
         loginBusy = false;
-        if(res.error){ loginMsg = "Correo o contraseña incorrectos."; renderLogin(); }
+        if(res.error){ loginMsg = motivoLogin(res.error); renderLogin(); }
       });
     });
+  }
+  // Distingue por qué no se puede entrar: antes todo salía como «contraseña incorrecta».
+  function motivoLogin(e){
+    var code = (e && e.code) || "", msg = (e && e.message) || "", st = e && e.status;
+    if(navigator.onLine===false) return "No hay conexión a internet.";
+    if(code==="invalid_credentials" || /invalid login credentials/i.test(msg)) return "Correo o contraseña incorrectos.";
+    if(code==="user_banned" || /banned/i.test(msg)) return "Tu acceso a la app está desactivado. Habla con el administrador.";
+    if(code==="email_not_confirmed" || /not confirmed/i.test(msg)) return "Tu usuario aún no está confirmado. Pide al administrador que lo confirme.";
+    if(!st || st>=500 || /fetch|network/i.test(msg)) return "No se puede conectar con el servidor de la app. Puede estar en pausa: avisa al administrador.";
+    return "No se pudo entrar ("+(code||msg||st)+").";
   }
   function sessionCard(){
     if(!SB || !session) return "";
