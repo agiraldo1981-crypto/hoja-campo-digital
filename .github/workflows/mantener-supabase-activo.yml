@@ -1,20 +1,55 @@
-# Supabase gratis pausa el proyecto tras 7 días sin actividad.
-# Esto hace una consulta mínima dos veces por semana para que no se pause.
+# Supabase gratis pausa el proyecto si cree que no se usa.
+# Cada día este aviso escribe en la base de datos (función latido, ver supabase/04-latido.sql)
+# y además hace una lectura normal. Si algo falla, GitHub manda un correo al dueño del repositorio.
+# Una vez al mes guarda la fecha en .github/latido.txt: GitHub desactiva las tareas
+# programadas de un repositorio que pasa 60 días sin cambios.
 name: Mantener Supabase activo
 
 on:
   schedule:
-    - cron: "0 7 * * 1,4"   # lunes y jueves a las 7:00 UTC
+    - cron: "17 6 * * *"   # todos los días a las 6:17 UTC
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+env:
+  SB_URL: https://avwtygqwvuinzqfuvgab.supabase.co
+  SB_KEY: sb_publishable_fsUVgUEpwO8dQdYN5ue8oA_jOLOQu7k
+
 jobs:
-  ping:
+  latido:
     runs-on: ubuntu-latest
     steps:
-      - name: Consultar Supabase
+      - name: Escribir el latido en la base de datos
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -s -o r.txt -w "%{http_code}" -X POST "$SB_URL/rest/v1/rpc/latido" \
+              -H "apikey: $SB_KEY" -H "Content-Type: application/json" -d '{}')
+            echo "Latido: $code $(cat r.txt)"
+            [ "$code" = "200" ] && exit 0
+            sleep 30
+          done
+          echo "::error::Supabase no responde al latido. Puede estar pausado: entra en supabase.com y pulsa Resume project."
+          exit 1
+
+      - name: Lectura normal
         run: |
           code=$(curl -s -o /dev/null -w "%{http_code}" \
-            "https://avwtygqwvuinzqfuvgab.supabase.co/rest/v1/registros?select=id&limit=1" \
-            -H "apikey: sb_publishable_fsUVgUEpwO8dQdYN5ue8oA_jOLOQu7k")
-          echo "Respuesta de Supabase: $code"
+            "$SB_URL/rest/v1/registros?select=id&limit=1" -H "apikey: $SB_KEY")
+          echo "Lectura: $code"
           test "$code" = "200"
+
+      - uses: actions/checkout@v4
+
+      - name: Guardar la fecha una vez al mes
+        run: |
+          if [ "$(date -u +%d)" != "01" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "Hoy no toca."; exit 0
+          fi
+          date -u +"%Y-%m-%d %H:%M UTC" > .github/latido.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898+github-actions[bot]@users.noreply.github.com"
+          git add .github/latido.txt
+          git commit -m "Latido mensual del aviso automático" || exit 0
+          git push
